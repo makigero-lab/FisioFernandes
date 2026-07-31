@@ -760,6 +760,23 @@ exports.atualizarNotaClinica = async (req, res) => {
       descricao: `Nota clínica SOAP atualizada`,
     });
 
+    // W1 — Se a consulta foi concluída neste pedido, notifica o portal Autocell
+    // (webhook fire-and-forget, sem await). Payload esparso: só IDs críticos.
+    // O Autocell usa este evento para saber que uma nota clínica foi submetida
+    // e assinada com cédula (para métricas, faturação, orquestração, etc.).
+    if (estado === 'concluida') {
+      try {
+        const { enviarEventoParaAutocell } = require('../utils/outboundWebhook');
+        enviarEventoParaAutocell('consulta.concluida', {
+          consulta_id: String(consulta._id),
+          fisioterapeuta_id: String(consulta.fisioterapeuta_id),
+          paciente_id: String(consulta.paciente_id),
+        });
+      } catch (e) {
+        // Fire-and-forget: nunca bloqueia a resposta ao fisio.
+      }
+    }
+
     return res.status(200).json({ consulta });
   } catch (err) {
     console.error('❌ atualizarNotaClinica:', err.message);

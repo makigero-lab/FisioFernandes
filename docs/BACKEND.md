@@ -562,6 +562,108 @@ O endpoint `GET /api/gestor/consultas/validar` (função `validarConflitosEndpoi
 
 ---
 
+## 3.6. Sistema de Emissão de Webhooks (Outbound) — integração com o Autocell
+
+O FisioFernandes notifica o portal central de orquestração **Autocell** quando ocorrem eventos críticos, via webhooks outbound (POST assíncrono M2M, fire-and-forget). A comunicação usa payloads leves ("esparso") e assinatura HMAC-SHA256 para verificação de autenticidade.
+
+**Ficheiro:** `backend/utils/outboundWebhook.js` → exporta `enviarEventoParaAutocell(tipoEvento, dadosPayload)`.
+
+### Variáveis de ambiente
+
+| Variável | Descrição |
+|---|---|
+| `AUTOCELL_WEBHOOK_URL` | URL de destino no Autocell (ex.: `http://url-do-autocell/api/webhooks/fisiofernandes`). |
+| `AUTOCELL_WEBHOOK_SECRET` | Segredo partilhado usado para gerar a assinatura HMAC-SHA256. Tem de ser **idêntico** no Autocell (que o usa para verificar a autenticidade). |
+
+**Modo degradado:** se ambas as variáveis não estiverem definidas, `enviarEventoParaAutocell()` faz apenas `console.log` do evento (útil em dev) e **não** tenta o pedido de rede — os eventos são silenciosamente ignorados.
+
+### Estrutura do payload
+
+O payload é "esparso" — contém apenas a estrutura base e IDs críticos, nunca dados sensíveis nem conteúdo completo:
+
+```json
+{
+  "eventId": "550e8400-e29b-41d4-a716-446655440000",
+  "eventType": "consulta.concluida",
+  "timestamp": "2025-01-31T18:00:00.000Z",
+  "data": {
+    "consulta_id": "ObjectId",
+    "fisioterapeuta_id": "ObjectId",
+    "paciente_id": "ObjectId"
+  }
+}
+```
+
+- `eventId` — UUID v4 novo por evento (permite idempotência no receptor).
+- `eventType` — tipo do evento (ver catálogo abaixo).
+- `timestamp` — ISO 8601 string (UTC).
+- `data` — objeto com apenas os IDs críticos relevantes ao evento.
+
+### Assinatura HMAC-SHA256
+
+Cada webhook inclui o cabeçalho `X-FisioFernandes-Signature` com a assinatura HMAC-SHA256 do corpo JSON (em hexadecimal), gerada com `AUTOCELL_WEBHOOK_SECRET`:
+
+```
+X-FisioFernandes-Signature: 352a86109cd8ab0322adfdd614a78ef7...
+Content-Type: application/json
+```
+
+**Verificação no Autocell:** o receptor recalcula o HMAC do corpo recebido com o mesmo segredo e compara com o cabeçalho. Se bater → webhook autêntico; se não → rejeitado. Isto garante que o webhook veio do FisioFernandes (que conhece o segredo) e que o corpo não foi alterado em trânsito.
+
+### Cabeçalhos do pedido
+
+| Cabeçalho | Valor |
+|---|---|
+| `Content-Type` | `application/json` |
+| `X-FisioFernandes-Signature` | `<hmac_sha256_em_hex>` |
+
+### Catálogo de eventos
+
+Atualmente suporta dois eventos (o catálogo é extensível — adicionar novos eventos implica só uma nova chamada `enviarEventoParaAutocell` no ponto de integração correspondente):
+
+#### `consulta.concluida`
+
+Disparado quando um fisioterapeuta (ou diretor clínico) conclui uma consulta e submete a nota clínica SOAP (assinada com a cédula profissional). Integração em `consultaController.atualizarNotaClinica` — só dispara quando o `estado` passa a `'concluida'` nesse pedido.
+
+```json
+{
+  "eventId": "...",
+  "eventType": "consulta.concluida",
+  "timestamp": "...",
+  "data": {
+    "consulta_id": "ObjectId-da-consulta",
+    "fisioterapeuta_id": "ObjectId-do-fisio-assinante",
+    "paciente_id": "ObjectId-do-paciente"
+  }
+}
+```
+
+**Integração:** `backend/controllers/consultaController.js` → `atualizarNotaClinica` (depois de `consulta.save()` + `registarAuditoria`, se `estado === 'concluida'`; fire-and-forget, sem `await`). O Autocell usa este evento para saber que uma nota clínica foi submetida e assinada com cédula (para métricas, faturação, orquestração, etc.).
+
+#### `alerta.consultas_pendentes`
+
+Disparado no final do Cão de Guarda Consultas (`jobs/caoGuardaConsultas.js`), quando existem consultas problemáticas (órfãs — sem fisio ativo — ou esquecidas — datas passadas não concluídas). Os IDs são agrupados num único webhook agregado (não um por consulta).
+
+```json
+{
+  "eventId": "...",
+  "eventType": "alerta.consultas_pendentes",
+  "timestamp": "...",
+  "data": {
+    "consultas_ids": ["ObjectId-1", "ObjectId-2", "..."],
+    "data_alvo": "2025-01-31T00:00:00.000Z"
+  }
+}
+```
+
+**Integração:** `backend/jobs/caoGuardaConsultas.js` → `executarCaoGuardaConsultas` (no final, depois de notificar os diretores; fire-and-forget). `data_alvo` é o início do dia atual em UTC (meia-noite). Só dispara se houver pelo menos uma consulta problemática — não envia webhooks vazios.
+
+### Padrão fire-and-forget
+
+A função `enviarEventoParaAutocell()` é `async` mas os callers **não devem aguardar** (`await`) — o evento é disparado em background e não bloqueia o fluxo principal. Erros de rede (Autocell indisponível, timeout, etc.) são apanhados e loggados como warning, nunca lançados. Isto garante que uma falha no Autocell nunca prejudica a operação do FisioFernandes (nem a submissão de uma nota SOAP, nem o encerramento do Cão de Guarda).
+
+---
+
 ## 4. Scripts disponíveis
 
 | Script       | Comando            | Descrição                                          |
@@ -600,6 +702,8 @@ Definidas no ficheiro `.env` (a criar a partir de `.env.example`). **Nunca** faz
 | `JWT_EXPIRACAO` | ❌ Não        | Tempo de expiração do JWT (formato jsonwebtoken: `7d`, `12h`). Default `7d`. |
 | `FRONTEND_URL`  | ❌ Não        | Origem permitida para CORS (URL do frontend Vercel). Default `http://localhost:3000`. |
 | `AUTOCELL_SSO_SECRET` | ❌ Não | Segredo partilhado com o Autocell para SSO (ver §6.2). Se vazio, SSO desativado. |
+| `AUTOCELL_WEBHOOK_URL` | ❌ Não | URL de destino no Autocell para webhooks outbound (ver §3.6). Se vazio (com `AUTOCELL_WEBHOOK_SECRET`), webhooks em modo dev (console.log). |
+| `AUTOCELL_WEBHOOK_SECRET` | ❌ Não | Segredo partilhado para assinatura HMAC-SHA256 dos webhooks outbound (ver §3.6). Tem de ser idêntico no Autocell. |
 | `GEMINI_API_KEY` | ❌ Não       | Chave do Google Gemini para o Resumo Executivo com IA (best-effort). |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | ❌ Não | Chaves VAPID para notificações push (Web Push API). Se ausentes, push é ignorado silenciosamente. |
 

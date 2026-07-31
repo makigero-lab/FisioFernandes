@@ -2160,3 +2160,70 @@ Stage Summary:
 - **Docs:** `docs/BACKEND.md` §6.2 com documentação completa + diagrama; §5 com tabela de env vars atualizada.
 - **Testes:** backend 130/130 ✓; frontend tsc ✓ + next build ✓ (rota `/api/auth/sso` registada).
 - **Próximo passo:** commit + push para branch `dev`.
+
+---
+
+Task ID: W1
+Agent: Z.ai Code
+Task: Implementar o Sistema de Emissão de Webhooks (Outbound) para notificar o portal central Autocell quando ocorrem eventos críticos no FisioFernandes. Comunicação M2M assíncrona (fire-and-forget) com payloads leves ("esparso") e assinatura HMAC-SHA256. Integração em dois fluxos: Cão de Guarda Consultas (consultas pendentes) e Submissão de Notas Clínicas (consulta concluída).
+
+Work Log:
+
+### W1-A — Variáveis de ambiente (backend/.env.example)
+- Adicionadas:
+  - `AUTOCELL_WEBHOOK_URL=http://url-do-autocell/api/webhooks/fisiofernandes` (URL de destino no Autocell).
+  - `AUTOCELL_WEBHOOK_SECRET=o_mesmo_segredo_usado_no_autocell` (segredo para HMAC-SHA256; tem de ser idêntico no Autocell).
+- Comentário explica o modo degradado: se ambas as variáveis não estiverem definidas, o utilitário faz apenas console.log e não tenta o pedido de rede (útil em dev).
+
+### W1-B — Utilitário (backend/utils/outboundWebhook.js) — NOVO
+- Exporta `enviarEventoParaAutocell(tipoEvento, dadosPayload)` (async, fire-and-forget).
+- Lógica:
+  1. Se `AUTOCELL_WEBHOOK_URL` ou `AUTOCELL_WEBHOOK_SECRET` não definidas → `console.log` do evento e retorna (modo dev).
+  2. Monta o payload base esparso: `{ eventId: crypto.randomUUID(), eventType: tipoEvento, timestamp: ISO 8601, data: dadosPayload }`.
+  3. Serializa UMA VEZ (`JSON.stringify`) — a assinatura e o corpo enviado têm de ser byte-idênticos.
+  4. Gera assinatura HMAC-SHA256 do corpo JSON com `crypto.createHmac('sha256', WEBHOOK_SECRET).update(corpoJson, 'utf8').digest('hex')`.
+  5. `fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-FisioFernandes-Signature': assinatura }, body: corpoJson })`.
+  6. Se `!res.ok` → warning loggado, não lança.
+  7. Erros de rede (fetch failed) → warning loggado, não lança (fire-and-forget puro).
+- Também exporta `webhookConfigurado()` (boolean, útil para callers) e `gerarAssinatura()` (para testes/verificação).
+- JSDoc completo explica o fluxo, o modo degradado e o padrão fire-and-forget.
+- Teste manual validou: modo dev (console.log, sem rede) ✓; modo configurado com URL inexistente (falha graceful com warning, promise resolvida) ✓; assinatura HMAC gerada corretamente ✓.
+
+### W1-C — Integração no caoGuardaConsultas.js (evento `alerta.consultas_pendentes`)
+- Import lazy adicionado dentro de `executarCaoGuardaConsultas` (depois de notificar os diretores): `const { enviarEventoParaAutocell } = require('../utils/outboundWebhook');` (lazy como o `notificarUtilizador` para permitir spyOn nos testes).
+- No final (depois de `console.log('✅ Alertas enviados.')`), se houver pelo menos uma consulta problemática (órfã ou esquecida), dispara o webhook agregado **sem await** (fire-and-forget) envolvido em try/catch:
+  - Evento: `'alerta.consultas_pendentes'`.
+  - Payload: `{ consultas_ids: [String, ...] (IDs de órfãs + esquecidas), data_alvo: inicioHoje.toISOString() }`.
+- Só dispara se `consultasIds.length > 0` — não envia webhooks vazios.
+
+### W1-D — Integração no consultaController.atualizarNotaClinica (evento `consulta.concluida`)
+- Import lazy adicionado dentro do bloco `if (estado === 'concluida')` (só carrega o utilitário quando efetivamente precisa — micro-otimização).
+- Ponto de integração: depois de `await consulta.save()` + `registarAuditoria(...)`, antes de `return res.status(200)`.
+- Só dispara quando `estado === 'concluida'` (a consulta foi concluída neste pedido). O webhook é disparado **sem await** (fire-and-forget) envolvido em try/catch (nunca bloqueia a resposta ao fisio).
+- Payload enviado: `{ consulta_id: String(consulta._id), fisioterapeuta_id: String(consulta.fisioterapeuta_id), paciente_id: String(consulta.paciente_id) }`.
+- IDs convertidos para String (são ObjectIds) — payload esparso e serializável.
+
+### W1-E — Documentação (docs/BACKEND.md)
+- Nova secção **3.6. Sistema de Emissão de Webhooks (Outbound) — integração com o Autocell** com:
+  - Tabela de variáveis de ambiente (`AUTOCELL_WEBHOOK_URL`, `AUTOCELL_WEBHOOK_SECRET`).
+  - Explicação do modo degradado (dev sem config → console.log).
+  - Estrutura do payload esparso (JSON exemplo com eventId, eventType, timestamp, data).
+  - Secção "Assinatura HMAC-SHA256" explicando o cabeçalho `X-FisioFernandes-Signature` e como o Autocell verifica (recalcula o HMAC e compara).
+  - Tabela de cabeçalhos do pedido.
+  - Catálogo de eventos: `consulta.concluida` (com JSON exemplo + ponto de integração) e `alerta.consultas_pendentes` (com JSON exemplo + ponto de integração).
+  - Secção "Padrão fire-and-forget" explicando que erros de rede nunca bloqueiam o FisioFernandes.
+- Secção 5 (Variáveis de ambiente) atualizada com `AUTOCELL_WEBHOOK_URL` e `AUTOCELL_WEBHOOK_SECRET`.
+
+### W1-F — Validação
+- Sintaxe: `node --check` em `outboundWebhook.js`, `caoGuardaConsultas.js`, `consultaController.js` — todos OK.
+- Testes Jest: **129/130 a passar**. O 1 teste que falha (`briefingDiarioFisio — notifica fisio com consulta hoje`) é **pré-existente e flaky** (relacionado com fuso horário/cálculo de "hoje") — confirmei com `git stash` que já falhava ANTES das minhas alterações (mesmo resultado: 129 passed, 1 failed). As minhas integrações são retrocompatíveis e não quebraram nenhum teste novo. O teste `caoGuardaConsultas — deteta consultas esquecidas` passou ✓ (a integração do webhook não interfere com a lógica do job).
+
+Stage Summary:
+- **Novo utilitário:** `backend/utils/outboundWebhook.js` — `enviarEventoParaAutocell(tipoEvento, dadosPayload)` com HMAC-SHA256, modo degradado (dev), fire-and-forget puro.
+- **2 integrações:** `consulta.concluida` (consultaController.atualizarNotaClinica, quando estado passa a 'concluida') + `alerta.consultas_pendentes` (caoGuardaConsultas, agregado no final do job).
+- **Payload esparso:** só IDs críticos (consulta_id, fisioterapeuta_id, paciente_id / consultas_ids, data_alvo) — nunca dados sensíveis nem conteúdo completo (SOAP não é enviado).
+- **Segurança:** assinatura HMAC-SHA256 no cabeçalho `X-FisioFernandes-Signature`; o Autocell verifica recalculando com o mesmo segredo.
+- **Resiliência:** fire-and-forget — falhas no Autocell nunca prejudicam o FisioFernandes (erros loggados como warning, nunca lançados). O fisio não espera pelo webhook ao concluir uma consulta.
+- **Docs:** nova secção 3.6 no `docs/BACKEND.md` + tabela de env vars completa.
+- **Testes:** 129/130 ✓ (1 teste flaky pré-existente, não relacionado — confirmado via git stash).
+- **Próximo passo:** commit + push para branch `dev` com mensagem `feat(webhooks): integracao outbound de eventos fisiofernandes-autocell`.

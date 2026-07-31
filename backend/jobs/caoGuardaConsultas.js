@@ -113,6 +113,24 @@ async function executarCaoGuardaConsultas() {
     }
 
     console.log(`✅ [Cão de Guarda Consultas] Alertas enviados.`);
+
+    // W1 — Notifica o portal Autocell das consultas pendentes identificadas
+    // (webhook agregado, fire-and-forget). Só dispara se houver pelo menos
+    // uma consulta problemática (órfã ou esquecida) — não envia webhooks vazios.
+    // Os IDs são agrupados num único evento para não inundar o Autocell.
+    try {
+      const { enviarEventoParaAutocell } = require('../utils/outboundWebhook');
+      const consultasIds = [...orfas, ...esquecidas].map((c) => String(c._id));
+      if (consultasIds.length > 0) {
+        enviarEventoParaAutocell('alerta.consultas_pendentes', {
+          consultas_ids: consultasIds,
+          data_alvo: inicioHoje.toISOString(),
+        });
+      }
+    } catch (e) {
+      // Fire-and-forget: não bloqueia o job.
+    }
+
     return { orfas: orfas.length, esquecidas: esquecidas.length, alertas: totalAlertas };
   } catch (err) {
     console.error('❌ [Cão de Guarda Consultas] Erro:', err.message);
