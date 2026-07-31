@@ -2086,3 +2086,77 @@ Stage Summary:
 - **DTO**: `ConsultaDTO.nota_clinica.protocolo_aplicado` adicionado.
 - **Testes**: backend 130/130 ✓; frontend tsc ✓ + next build ✓ (rota `/staff/consultas/[id]` registada).
 - **Próximo passo**: commit + push para branch `dev`.
+
+---
+
+Task ID: S1
+Agent: Z.ai Code
+Task: Implementar Single Sign-On (SSO) entre o portal central Autocell e o FisioFernandes. O Autocell gera um JWT externo assinado com um segredo partilhado e redireciona o browser do admin para o FisioFernandes, que valida o token, inicia a sessão de forma segura e redireciona para a área administrativa. Arquitetura proxy cross-domain (mesmo padrão usado no All2gether).
+
+Work Log:
+
+### S1-A — Variável de ambiente
+- `backend/.env.example`: adicionada `AUTOCELL_SSO_SECRET=seu_segredo_sso_aqui` com comentário explicativo (segredo partilhado entre Autocell e FisioFernandes; tem de ser idêntico nos dois sistemas; se vazio, SSO desativado). Aproveitei para REMOVER o bloco `SMOOBU_API_KEY=` (código morto — a integração Smoobu foi eliminada em F0, o `smoobuController.js` já não existe).
+
+### S1-B — Backend: ssoLogin (controllers/authController.js)
+- Criada e exportada a função `ssoLogin` (async) no final do authController, depois do `pushUnsubscribe`.
+- Suporta DOIS modos de resposta:
+  - **Modo JSON** (ativa se `?json=true` OU header `Accept: application/json`): devolve `{ sucesso: true, token: <jwt_interno> }` (200) sem setar cookies nem redirecionar. Para a proxy route do Next.js definir cookies no domínio do frontend (solução cross-domain).
+  - **Modo REDIRECT** (padrão, retrocompatível): seta cookies httpOnly (`fisiofernandes_token` + `fisiofernandes_admin_token`, `sameSite: 'lax'`, `secure` em prod, `maxAge: 7d`) e faz `res.redirect(302)` para `FRONTEND_URL/admin`. Só funciona same-domain.
+- Lógica:
+  1. Extrai `token` de `req.query.token`.
+  2. Se token em falta OU `AUTOCELL_SSO_SECRET` não configurado → erro (401 JSON ou redirect `/login?erro=sso_falhou`).
+  3. `jwt.verify(token, SSO_SECRET)` valida o JWT externo. Erro → redirect erro.
+  4. Extrai `email` do payload (suporta `payload.email` OU `payload.sub`). Sem email → erro.
+  5. `Utilizador.findOne({ email, role: 'admin' })` — apenas admins entram via SSO. Não encontrado ou `!ativo` → erro.
+  6. Gera o JWT interno do FisioFernandes (`{ id, role, empresa_id }`, `JWT_SECRET`, `TOKEN_EXPIRACAO`).
+  7. Modo JSON → `200 { sucesso: true, token }`. Modo REDIRECT → seta cookies + `302 redirect /admin`.
+- JSDoc completo com diagrama do fluxo cross-domain, justificação dos dois modos, e nota de segurança (segredo SSO isolado do JWT_SECRET).
+- Helper `responderErro(motivo)` centraliza a resposta de erro conforme o modo (401 JSON ou 302 redirect).
+
+### S1-C — Rotas (routes/authRoutes.js)
+- Importado `ssoLogin` no destructuring do authController.
+- Adicionada rota pública: `router.get('/sso', ssoLogin);` (depois de `/login`, antes de `/me`).
+- Sem rate limiter próprio (o global de `/api/` — 100/15min — aplica-se; o segredo partilhado é a proteção principal).
+- Atualizado o cabeçalho JSDoc do ficheiro para listar o novo endpoint.
+
+### S1-D — Frontend: proxy route (frontend/src/app/api/auth/sso/route.ts) — NOVO
+- Criada a pasta `frontend/src/app/api/auth/sso/` e o ficheiro `route.ts` com método `GET`.
+- Fluxo da proxy:
+  1. Extrai `token` da query string.
+  2. Se token em falta → `NextResponse.redirect` para `/login?erro=sso_falhou`.
+  3. `fetch` ao backend em modo JSON: `GET ${NEXT_PUBLIC_API_URL}/api/auth/sso?token=...&json=true` com header `Accept: application/json` e `cache: "no-store"`.
+  4. Se backend devolver não-OK (401/500/etc.) → redirect para `/login?erro=sso_falhou`.
+  5. Faz parse do JSON e valida `{ sucesso: true, token }`. Se inválido → redirect erro.
+  6. Define os cookies httpOnly no DOMÍNIO do frontend via `cookies()` de `next/headers`:
+     - `fisiofernandes_token` (cookie de sessão principal, lido pelo middleware do frontend)
+     - `fisiofernandes_admin_token` (cookie de marcação de admin + backup de impersonação)
+     - Opções: `httpOnly: true`, `secure: NODE_ENV === 'production'`, `sameSite: 'lax'` (obrigatório para redirect top-level do SSO), `path: '/'`, `maxAge: 7 dias`.
+  7. `NextResponse.redirect` para `/admin`.
+- Qualquer exceção é apanhada e redireciona para `/login?erro=sso_falhou`.
+- JSDoc completo explica o problema cross-domain, a solução proxy, as vantagens e a segurança.
+
+### S1-E — Documentação (docs/BACKEND.md)
+- Secção `#### GET /api/auth/sso (público — Single Sign-On com o Autocell)` adicionada em §6.2, com:
+  - Dois modos de funcionamento (REDIRECT e JSON) com exemplos de chamada.
+  - Diagrama ASCII do fluxo completo cross-domain (Autocell → proxy Next.js → backend → browser).
+  - Fluxo passo-a-passo do modo JSON (recomendado para produção).
+  - Secção de segurança (token interno só transita servidor-a-servidor no modo JSON).
+  - Secção de erros separada por modo.
+  - Nota de arquitetura cross-domain (Render + Vercel) com explicação da proxy route.
+- Secção 5 (Variáveis de ambiente) atualizada com `AUTOCELL_SSO_SECRET`, `FRONTEND_URL`, `GEMINI_API_KEY`, `VAPID_*`.
+- Estrutura de ficheiros: `authRoutes.js` atualizado para mencionar `GET /api/auth/sso`.
+
+### S1-F — Validação
+- Backend: `node --check` em `authController.js` e `authRoutes.js` — OK. Testes Jest: **130/130 a passar** ✓ (a nova rota é pública e retrocompatível; não interfere com os fluxos testados).
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓; a rota `ƒ /api/auth/sso` aparece registada como dinâmica (server-rendered).
+
+Stage Summary:
+- **Novo endpoint:** `GET /api/auth/sso` (público) — valida JWT externo do Autocell com `AUTOCELL_SSO_SECRET`, procura admin por email, gera JWT interno, devolve JSON (modo `?json=true`) ou seta cookies + redirect (modo padrão).
+- **Proxy route:** `frontend/src/app/api/auth/sso/route.ts` — resolve o problema cross-domain (Render + Vercel): corre no MESMO domínio do frontend, pede o token ao backend em modo JSON, define cookies localmente, redireciona para `/admin`.
+- **Segurança:** segredo SSO isolado do `JWT_SECRET` interno; apenas role `admin`; `sameSite: 'lax'`; `httpOnly`; token interno nunca exposto ao browser no modo JSON.
+- **Variável de ambiente:** `AUTOCELL_SSO_SECRET` adicionada ao `.env.example` (partilhada com o Autocell).
+- **Bónus:** removido `SMOOBU_API_KEY=` do `.env.example` (código morto — Smoobu eliminado em F0).
+- **Docs:** `docs/BACKEND.md` §6.2 com documentação completa + diagrama; §5 com tabela de env vars atualizada.
+- **Testes:** backend 130/130 ✓; frontend tsc ✓ + next build ✓ (rota `/api/auth/sso` registada).
+- **Próximo passo:** commit + push para branch `dev`.

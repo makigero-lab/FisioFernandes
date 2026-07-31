@@ -5,6 +5,7 @@
  *
  * Endpoints:
  *   POST /api/auth/login  — login (público, com rate limiting anti-força bruta)
+ *   GET  /api/auth/sso    — Single Sign-On com o portal Autocell (público)
  *   GET  /api/auth/me     — dados do utilizador autenticado (requer JWT)
  *
  * Segurança (v1.11.0):
@@ -17,7 +18,7 @@ const rateLimit = require('express-rate-limit');
 const router = express.Router();
 
 const { auth } = require('../middleware/auth');
-const { login, me, meuCalendario, minhasTarefas, minhaTarefaDetalhe, concluirMinhaTarefa } = require('../controllers/authController');
+const { login, ssoLogin, me, meuCalendario, minhasTarefas, minhaTarefaDetalhe, concluirMinhaTarefa } = require('../controllers/authController');
 const {
   listarNotificacoes,
   contagemNotificacoes,
@@ -56,6 +57,14 @@ const loginLimiter = rateLimit({
 
 // Login — público, mas com rate limiting anti-força bruta.
 router.post('/login', loginLimiter, login);
+
+// Single Sign-On (SSO) com o portal Autocell — público.
+// Recebe um JWT externo na query string (?token=...), valida-o com
+// AUTOCELL_SSO_SECRET, e se for válido define os cookies de sessão do
+// admin e redireciona para /admin (ou /login?erro=sso_falhou).
+// Suporta ?json=true para devolver JSON em vez de redirect+cookies
+// (usado pela proxy route do Next.js para resolver cross-domain).
+router.get('/sso', ssoLogin);
 
 // Dados do utilizador autenticado — requer JWT.
 router.get('/me', auth, me);
