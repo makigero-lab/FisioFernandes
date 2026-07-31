@@ -32,7 +32,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { DetalhesReservaCard } from "@/components/detalhes-reserva-card";
 
 /** Tarefa no formato devolvido pelo GET /api/gestor/tarefas (com populate). */
 export interface TarefaDetalheGestor {
@@ -218,9 +217,6 @@ export function DetalheTarefaModal({
                   </span>
                 </div>
               )}
-
-            {/* Prompt 95 — Card de detalhes da reserva Smoobu */}
-            <DetalhesReservaCard detalhes={tarefa.detalhes_reserva} />
 
             {/* Observações do gestor */}
             {tarefa.observacoes && (

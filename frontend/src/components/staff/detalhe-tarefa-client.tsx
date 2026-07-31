@@ -46,7 +46,6 @@ import {
 } from "@/components/ui/dialog";
 import { adminPost, adminPatch } from "@/lib/api";
 import type { TarefaMock, EstadoTarefa, TipoTarefa } from "@/lib/api";
-import { DetalhesReservaCard } from "@/components/detalhes-reserva-card";
 
 const tipoIcon: Record<TarefaMock["tipo"], React.ComponentType<{ className?: string }>> = {
   limpeza: SprayCan,
@@ -393,9 +392,6 @@ export function DetalheTarefaClient({
             </span>
           </div>
         )}
-
-        {/* Prompt 95 — Card de detalhes da reserva Smoobu (se existir). */}
-        <DetalhesReservaCard detalhes={tarefa.detalhes_reserva} />
 
         {/* Prompt 126 — Observações/notas internas da propriedade (regras de acesso, etc.). */}
         {tarefa.observacoes_propriedade && tarefa.observacoes_propriedade.trim() && (

@@ -1897,3 +1897,70 @@ Stage Summary:
 - **Soft delete** preserva metadados para auditoria.
 - **130/130 testes ✓** + **lint ✓** + **tsc ✓** + **build ✓**.
 - **MIGRAÇÃO F0-F9 COMPLETA** 🏁 — todas as 10 fases concluídas.
+
+---
+
+Task ID: DT1
+Agent: Z.ai Code
+Task: Resolução de dívida técnica crítica (Fase 1) — corrigir os 4 problemas críticos identificados na auditoria pós-migração F0-F9: (1) segurança RGPD (uploads/ tracked no git + .gitignore em falta), (2) conflito de compilação (detalhes-reserva-card duplicado), (3) schema da BD (Notificacao.tarefa_id dangling), (4) README desatualizado.
+
+Work Log:
+
+### DT1-A — Segurança e RGPD (.gitignore + uploads/)
+- **Problema**: 8 ficheiros de teste (PDFs, JPGs) committed em `uploads/` — potencial RGPD (documentos clínicos de teste). Não existia `.gitignore` na raiz do repo (só em `backend/` e `frontend/`), pelo que a entrada `uploads/` do `backend/.gitignore` não cobria a pasta `uploads/` da raiz.
+- **Correção**:
+  - Criado `.gitignore` na raiz do repo cobrindo: `node_modules/`, `.env*`, `.next/`, `build/`, `uploads/*` (com `!uploads/.gitkeep`), logs, OS, IDE.
+  - Criado `uploads/.gitkeep` (placeholder para manter a pasta no repo).
+  - `git rm -r --cached uploads/` removeu os 8 ficheiros de teste do index (ficheiros mantidos localmente — não perdidos).
+  - Confirmado: `git ls-files uploads/` devolve apenas `.gitkeep`.
+
+### DT1-B — Conflito de compilação (detalhes-reserva-card)
+- **Problema**: 2 ficheiros stub duplicados — `detalhes-reserva-card.tsx` e `detalhes-reserva-card.jsx` — ambos a exportar `DetalhesReservaCard` (stubs que devolvem `null`). Legacy do domínio Alojamento Local (mostravam check-in/check-out/pax/nome_hóspede). Importados por `detalhe-tarefa-modal.tsx` (gestor) e `detalhe-tarefa-client.tsx` (staff). Risco de conflito de resolução de módulos no Next.js.
+- **Correção**:
+  - Apagados `frontend/src/components/detalhes-reserva-card.tsx` e `detalhes-reserva-card.jsx`.
+  - Removido o import `import { DetalhesReservaCard } from "@/components/detalhes-reserva-card";` em ambos os callers.
+  - Removida a linha `<DetalhesReservaCard detalhes={tarefa.detalhes_reserva} />` em ambos os callers (era `return null`, pelo que remover não altera o UI).
+  - Confirmado: zero referências a `DetalhesReservaCard`/`detalhes-reserva-card` no código frontend (apenas em docs/WORKLOG como histórico).
+
+### DT1-C — Schema da BD (Notificacao.tarefa_id → consulta_id)
+- **Problema**: `backend/models/Notificacao.js` tinha `tarefa_id: { ref: 'Tarefa' }` — mas o modelo `Tarefa` foi REMOVIDO em F8. Um `populate('tarefa_id')` falharia silenciosamente (devolve `null`). O enum `tipo` ainda tinha `'tarefa_atribuida'`/`'tarefa_reatribuida'`/`'tarefa_cancelada'`.
+- **Correção** (`backend/models/Notificacao.js`):
+  - Campo `tarefa_id` → `consulta_id` (mantém `ObjectId`, `default: null`, `index: true`).
+  - `ref: 'Tarefa'` → `ref: 'Consulta'` (alinhado com F4).
+  - Enum `tipo`: `'tarefa_atribuida'` → `'consulta_marcada'`; `'tarefa_reatribuida'` → `'consulta_reatribuida'`; `'tarefa_cancelada'` → `'consulta_cancelada'`. Mantidos `'aviso'` e `'sistema'`.
+  - `url` default: `'/staff'` → `'/gestor/consultas'` (página legítima do domínio Fisioterapia).
+  - JSDoc atualizado com nota da migração DT1/F8.
+
+### DT1-D — Atualização dos callers de Notificacao
+- **`backend/utils/notificar.js`**:
+  - `criarNotificacaoInApp`: `opts.tarefa_id` → `opts.consulta_id` (JSDoc + implementação); `url` default `'/staff'` → `'/gestor/consultas'`.
+  - `notificarUtilizador`: `url` default `'/staff'` → `'/gestor/consultas'`; JSDoc atualizado com `opts.consulta_id`; passa `consulta_id` ao `criarNotificacaoInApp`.
+- **`frontend/src/components/notification-bell.tsx`**:
+  - Interface `notificacoes`: `tarefa_id?: string | null` → `consulta_id?: string | null`.
+  - `handleClickNotificacao`: `if (n.tarefa_id) router.push('/staff/tarefas/${n.tarefa_id}')` → `if (n.consulta_id) router.push('/gestor/consultas')` (a rota `/staff/tarefas/:id` é legacy e quebrada — o dashboard do fisio será migrado em futura tarefa).
+  - JSDoc atualizado (Prompt 118 / DT1).
+- **Verificação**: zero callers residuais que passem `tarefa_id` ou `tipo: 'tarefa_*'` ao `notificarUtilizador`/`criarNotificacaoInApp` (confirmado com grep — `tarefaController` foi removido em F8, pelo que não há callers legacy).
+
+### DT1-E — Reescrita do README.md
+- **Problema**: o README (228 linhas) estava severamente desatualizado — ainda descrevia a era Autocell (Tarefa, Propriedade, loadBalancer, scheduler, Smoobu, role `gestor`/`staff`), não mencionava nenhum endpoint F1–F9, e listava páginas removidas em F8 (`/admin/propriedades`, `/admin/equipa`, `/admin/calendario`, `/gestor/tarefas`, `/gestor/calendario`, `/gestor/webhooks`).
+- **Correção**: README reescrito de raiz para refletir o estado real pós-F9:
+  - Descrição: "SaaS multi-tenant de gestão para Clínicas de Fisioterapia".
+  - Nova secção "Funcionalidades principais" (Consultas, Pacientes, Horários, Protocolos, Documentos, Calendário FullCalendar, RBAC 4 roles, 5 cron jobs clínicos, Notificações, Impersonation, AI Summary, Auditoria & Soft Delete).
+  - Estrutura do repositório atualizada (13 modelos, 12 controllers, 5 jobs F7, 6 utils — sem loadBalancer/scheduler).
+  - Tabela de variáveis de ambiente completa (incluindo `GEMINI_API_KEY`).
+  - Tabela de endpoints completa e correta: `/api/gestor/consultas`, `/pacientes`, `/horarios`, `/protocolos`, `/documentos`, `/ausencias`, `/relatorios/ai-summary`, `/api/admin/empresas/*` (toggle-status, hard-reset, soft delete, restaurar, config, impersonar), `/api/auth/exit-impersonation`, notificações in-app.
+  - Rotas frontend atualizadas: `/gestor/consultas`, `/gestor/calendario-consultas`, `/gestor/pacientes`, `/gestor/equipa/horarios`, `/gestor/protocolos`, `/gestor/documentos`, etc.
+  - Removidas todas as menções a Tarefa, Propriedade (mantido só como alias de Sala), Autocell, Alojamento Local, Smoobu, loadBalancer, scheduler.
+
+### DT1-F — Validação
+- Backend: `node --check` em `Notificacao.js` e `notificar.js` — OK. Testes Jest: **130/130 a passar** ✓.
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (todas as rotas compilaram, incluindo as que antes importavam `DetalhesReservaCard`).
+- Verificação final: zero `tarefa_id` no código backend (exceto 2 comentários históricos em `Notificacao.js` que documentam a migração); zero `DetalhesReservaCard` no frontend; zero ficheiros de teste em `uploads/` no index do git.
+
+Stage Summary:
+- **Segurança RGPD**: `.gitignore` na raiz criado; 8 ficheiros de teste removidos do index do git (mantidos localmente); `uploads/.gitkeep` preserva a pasta.
+- **Conflito de compilação**: 2 stubs duplicados (`detalhes-reserva-card.tsx` + `.jsx`) apagados; imports e JSX removidos nos 2 callers (sem alteração visual — o componente era `return null`).
+- **Schema BD**: `Notificacao.tarefa_id` (ref `'Tarefa'` dangling) → `consulta_id` (ref `'Consulta'`); enum `tipo` renomeado (`tarefa_*` → `consulta_*`); callers atualizados (`notificar.js` + `notification-bell.tsx`).
+- **README**: reescrito de raiz para refletir o estado real pós-F9 (Fisioterapia, Consultas, Pacientes, 4 roles, 5 cron jobs, endpoints F1–F9). Removidas todas as menções legacy.
+- **Testes**: backend 130/130 ✓; frontend tsc ✓ + next build ✓.
+- **Próximo passo**: commit + push para branch `dev` com mensagem `fix: resolucao de divida tecnica critica e atualizacao do readme`.
