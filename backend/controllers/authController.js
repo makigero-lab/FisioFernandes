@@ -1,5 +1,5 @@
 /**
- * Auth Controller — FisioCell
+ * Auth Controller — FisioFernandes
  *
  * Autenticação com JWT + bcrypt.
  *

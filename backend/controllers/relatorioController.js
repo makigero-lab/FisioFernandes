@@ -1,5 +1,5 @@
 /**
- * Relatório Controller — FisioCell
+ * Relatório Controller — FisioFernandes
  *
  * Endpoints de analytics / relatórios de produtividade.
  *
@@ -430,7 +430,7 @@ function construirPrompt(contexto) {
     )
     .join('\n') || '- (sem dados de salas)';
 
-  return `És um analista clínico de uma clínica de Fisioterapia (FisioCell).
+  return `És um analista clínico de uma clínica de Fisioterapia (FisioFernandes).
 Escreve um "Resumo Executivo" em português de Portugal, focado em gestão
 clínica (tendências e eficiência), a partir dos seguintes dados do período.
 

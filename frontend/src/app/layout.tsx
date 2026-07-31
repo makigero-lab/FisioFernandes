@@ -9,14 +9,14 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "FisioCell — Gestão de Alojamento Local",
+  title: "FisioFernandes — Gestão de Clínicas de Fisioterapia",
   description:
-    "SaaS de gestão para Alojamento Local: atribuição automática de tarefas de limpeza.",
+    "SaaS de gestão para Clínicas de Fisioterapia: marcações, pacientes, horários e fichas clínicas.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "FisioCell",
+    title: "FisioFernandes",
   },
   other: {
     "mobile-web-app-capable": "yes",

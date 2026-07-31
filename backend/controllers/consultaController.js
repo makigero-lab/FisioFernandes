@@ -1,5 +1,5 @@
 /**
- * Consulta Controller — FisioCell
+ * Consulta Controller — FisioFernandes
  *
  * F4 — CRUD de Consultas com validação de conflitos.
  *

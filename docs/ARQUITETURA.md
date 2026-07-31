@@ -1,6 +1,6 @@
-# Arquitetura — FisioCell (v0.1)
+# Arquitetura — FisioFernandes (v0.1)
 
-> **Proposta de arquitetura v0.1** para o SaaS FisioCell (Clínicas de Fisioterapia).
+> **Proposta de arquitetura v0.1** para o SaaS FisioFernandes (Clínicas de Fisioterapia).
 > Este documento acompanha as fases **F0** (rename + remoção Smoobu), **F1**
 > (migração de roles + `perfil_profissional` + `config` da empresa), **F2**
 > (`Paciente` + CRUD + sanitização de dados clínicos), **F3**
@@ -16,7 +16,7 @@
 
 ## 1. Visão Geral
 
-O **FisioCell** é um SaaS B2B **multi-tenant** para **Clínicas de Fisioterapia**.
+O **FisioFernandes** é um SaaS B2B **multi-tenant** para **Clínicas de Fisioterapia**.
 Cada clínica (= empresa = tenant) gere pacientes, fisioterapeutas, salas,
 marcações de consultas, notas clínicas (SOAP) e lembretes.
 
@@ -34,7 +34,7 @@ marcações de consultas, notas clínicas (SOAP) e lembretes.
 
 ## 2. Princípios Herdados do Código-Base
 
-A arquitetura FisioCell herda os princípios já consolidados no código-base
+A arquitetura FisioFernandes herda os princípios já consolidados no código-base
 Autocell. Estas convenções são **imutáveis** e aplicam-se a todos os modelos
 e endpoints novos.
 
@@ -45,7 +45,7 @@ e endpoints novos.
 | Soft delete                | Registos eliminados são marcados (`eliminado_em` ou `apagada: true`) em vez de removidos fisicamente. Protege integridade referencial e permite restaurar. |
 | Índices explícitos         | Todos os campos de query frequente (`empresa_id`, `utilizador_id`, `data`, etc.) têm `index: true` declarado explicitamente no schema. |
 | RBAC via `requireRole`    | Middleware de controlo de acesso baseado em roles. Cada rota declara quais as roles permitidas. |
-| JWT em cookie httpOnly    | O token JWT é guardado num cookie `fisiocell_token` (httpOnly, SameSite=Strict, Secure). O middleware Edge lê o cookie; o backend verifica a assinatura. |
+| JWT em cookie httpOnly    | O token JWT é guardado num cookie `fisiofernandes_token` (httpOnly, SameSite=Strict, Secure). O middleware Edge lê o cookie; o backend verifica a assinatura. |
 | Cron jobs (node-cron)     | Jobs agendados com `timezone: 'Europe/Lisbon'`. Iniciados no arranque do `server.js` dentro de `if (require.main === module)` (não correm nos testes). |
 | Snapshots imutáveis       | Dados contextuais no momento da criação (ex.: checklist da propriedade, detalhes da reserva) são copiados para o documento — não há `populate` retroativo que possa mudar o passado. |
 | Modelo de arquivo         | Entidades concluídas/arquivadas são movidas para uma coleção `*Arquivo` com snapshot completo. Mantém a coleção principal leve. **F8:** o legacy `TarefaArquivo` foi removido; só o `ConsultaArquivo` (F7) está ativo. |
@@ -54,7 +54,7 @@ e endpoints novos.
 
 ## 3. Hierarquia de Roles
 
-O FisioCell define **4 roles** aprovadas:
+O FisioFernandes define **4 roles** aprovadas:
 
 | Role                | Escopo        | Descrição                                                                 |
 |---------------------|---------------|---------------------------------------------------------------------------|
@@ -438,7 +438,7 @@ permanecem ativos.
 
 | Fase | Escopo | Estado |
 |------|--------|--------|
-| **F0** | Rename Autocell→FisioCell + remoção Smoobu + `ARQUITETURA.md` | ✅ Concluído |
+| **F0** | Rename Autocell→FisioFernandes + remoção Smoobu + `ARQUITETURA.md` | ✅ Concluído |
 | **F1** | Adaptar `Empresa` (já tem `morada`/`telefone`/`email`) + `Utilizador` (novos roles + `perfil_profissional`) | ✅ Concluído |
 | **F2** | Criar `Paciente` + CRUD + permissões (diretor_clinico vê todos; fisio vê só os seus; rececionista vê dados demográficos) | ✅ Concluído |
 | **F3** | `Sala` (de `Propriedade`) + `HorarioFisioterapeuta` + motor de disponibilidade (3 camadas) | ✅ Concluído\* |

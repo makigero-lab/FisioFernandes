@@ -1,5 +1,5 @@
 /**
- * Cão de Guarda Consultas — Cron Job (FisioCell)
+ * Cão de Guarda Consultas — Cron Job (FisioFernandes)
  *
  * F7 — Todos os dias às 02:00 (Europe/Lisbon), verifica consultas problemáticas:
  *   1. Consultas de hoje sem fisioterapeuta ativo (órfãs)

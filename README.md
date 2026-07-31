@@ -1,13 +1,13 @@
-# FisioCell
+# FisioFernandes
 
 **SaaS multi-tenant de gestão para Clínicas de Fisioterapia.**
 
-O FisioCell é uma aplicação dividida em duas partes:
+O FisioFernandes é uma aplicação dividida em duas partes:
 
 - **`backend/`** — API REST construída em **Node.js + Express**, com base de dados **MongoDB** (via Mongoose). Desenhada para o [Render](https://render.com).
 - **`frontend/`** — Interface de utilizador em **Next.js 14 + TypeScript + Tailwind CSS + shadcn/ui**, com três áreas: Super Admin (`/admin`), Diretor Clínico/Rececionista (`/gestor`) e Fisioterapeuta (`/staff`). Desenhada para a [Vercel](https://vercel.com), comunica com a API via proxy routes + CORS.
 
-> 📌 Repositório: https://github.com/makigero-lab/FisioCell
+> 📌 Repositório: https://github.com/makigero-lab/FisioFernandes
 > 🌿 Branch de desenvolvimento ativa: **`dev`**
 
 ---
@@ -32,7 +32,7 @@ O FisioCell é uma aplicação dividida em duas partes:
 ## Estrutura do repositório
 
 ```
-FisioCell/
+FisioFernandes/
 ├── backend/        # API REST (Node.js + Express + MongoDB)
 │   ├── package.json
 │   ├── server.js
@@ -90,19 +90,19 @@ A API arranca na porta definida em `PORT` (por defeito **5000**).
 
 | Variável | Descrição | Exemplo |
 |----------|-----------|---------|
-| `MONGODB_URI` | URI de ligação ao MongoDB | `mongodb://localhost:27017/fisiocell` |
+| `MONGODB_URI` | URI de ligação ao MongoDB | `mongodb://localhost:27017/fisiofernandes` |
 | `PORT` | Porta onde a API escuta (no Render é injetada) | `5000` |
 | `JWT_SECRET` | Segredo de assinatura dos JWT (obrigatório em produção) | `(valor aleatório longo)` |
 | `JWT_EXPIRACAO` | Expiração do JWT (default `7d`) | `7d` |
-| `FRONTEND_URL` | Origem permitida para CORS (URL do frontend) | `https://fisiocell.vercel.app` |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Chaves VAPID para notificações push | `mailto:admin@fisiocell.com` |
+| `FRONTEND_URL` | Origem permitida para CORS (URL do frontend) | `https://fisiofernandes.vercel.app` |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Chaves VAPID para notificações push | `mailto:admin@fisiofernandes.com` |
 | `GEMINI_API_KEY` | Chave do Google Gemini para o AI Summary (opcional) | `AIza...` |
 
 ### Endpoints disponíveis
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| `GET`  | `/` | Healthcheck. Devolve `{ "status": "API do FisioCell online e ligada à BD!" }` |
+| `GET`  | `/` | Healthcheck. Devolve `{ "status": "API do FisioFernandes online e ligada à BD!" }` |
 | `GET`  | `/api/health` | Estado da API + BD (MongoDB) + uptime. Devolve `503` se a BD estiver em baixo. |
 | **Autenticação** (`/api/auth`) | | |
 | `POST` | `/api/auth/login` | Login (público, com rate limiting). Body: `{ email, password }`. Devolve `{ token, utilizador }`. |
@@ -239,7 +239,7 @@ npm run dev          # http://localhost:3000
 
 | Variável | Descrição | Exemplo |
 |-----------|-----------|---------|
-| `NEXT_PUBLIC_API_URL` | URL base da API backend (Render). | `https://fisiocell-backend.onrender.com` |
+| `NEXT_PUBLIC_API_URL` | URL base da API backend (Render). | `https://fisiofernandes-backend.onrender.com` |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Chave pública VAPID (igual à do backend). | `(chave pública)` |
 
 ### Deploy na Vercel

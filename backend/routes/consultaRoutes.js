@@ -1,5 +1,5 @@
 /**
- * Rotas de Consultas — FisioCell
+ * Rotas de Consultas — FisioFernandes
  *
  * Prefixo montado em server.js: /api/gestor/consultas
  *

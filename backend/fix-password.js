@@ -8,7 +8,7 @@ async function fixAdminPassword() {
     console.log('A ligar à base de dados...');
     await mongoose.connect(process.env.MONGO_URI);
     
-    const admin = await Utilizador.findOne({ email: 'admin@fisiocell.com' });
+    const admin = await Utilizador.findOne({ email: 'admin@fisiofernandes.com' });
     
     if (!admin) {
       console.log('Admin não encontrado!');
@@ -27,7 +27,7 @@ async function fixAdminPassword() {
     if (error.code === 'MODULE_NOT_FOUND') {
         console.log('Tentando com o pacote bcrypt normal...');
         const bcryptNormal = require('bcrypt');
-        const admin = await Utilizador.findOne({ email: 'admin@fisiocell.com' });
+        const admin = await Utilizador.findOne({ email: 'admin@fisiofernandes.com' });
         const salt = await bcryptNormal.genSalt(10);
         admin.password = await bcryptNormal.hash('password123', salt);
         await admin.save();

@@ -1,5 +1,5 @@
 /**
- * Middleware de Controlo de Acesso por Role (RBAC) — FisioCell
+ * Middleware de Controlo de Acesso por Role (RBAC) — FisioFernandes
  *
  * F1 — Hierarquia migrada para o domínio Fisioterapia:
  *   admin             → Super Admin da plataforma (cross-tenant, NÃO vê

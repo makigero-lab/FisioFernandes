@@ -1,5 +1,5 @@
 /**
- * Rotas de Relatórios / Analytics — FisioCell
+ * Rotas de Relatórios / Analytics — FisioFernandes
  *
  * Prefixo montado em server.js: /api/gestor/relatorios
  *

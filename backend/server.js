@@ -1,5 +1,5 @@
 /**
- * FisioCell - API de gestão para Clínicas de Fisioterapia
+ * FisioFernandes - API de gestão para Clínicas de Fisioterapia
  * Ponto de entrada da aplicação backend (Express + MongoDB).
  *
  * Variáveis de ambiente (ver .env.example):
@@ -10,7 +10,7 @@
  *   - FRONTEND_URL       — origem permitida para CORS (default localhost:3000)
  *   - VAPID_PUBLIC_KEY   — Chave pública VAPID para Web Push (notificações push)
  *   - VAPID_PRIVATE_KEY  — Chave privada VAPID (assina as notificações)
- *   - VAPID_SUBJECT      — Identificador do emissor (mailto:admin@fisiocell.com)
+ *   - VAPID_SUBJECT      — Identificador do emissor (mailto:admin@fisiofernandes.com)
  *                          Gerar com: npx web-push generate-vapid-keys
  *
  * F0 — A integração Smoobu foi removida. O motor de atribuição (load
@@ -108,7 +108,7 @@ app.get('/api/health', async (req, res) => {
 
 // Rota de teste para confirmar que a API está online.
 app.get('/', (req, res) => {
-  res.json({ status: 'API do FisioCell online e ligada à BD!' });
+  res.json({ status: 'API do FisioFernandes online e ligada à BD!' });
 });
 
 // Autenticação (login público + /me protegido).

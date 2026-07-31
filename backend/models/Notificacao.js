@@ -1,5 +1,5 @@
 /**
- * Modelo Notificacao — FisioCell
+ * Modelo Notificacao — FisioFernandes
  *
  * Prompt 114 — Centro de Notificações In-App (O Sino).
  * F8/DT1 — Adaptado ao domínio Fisioterapia: tarefa_id → consulta_id,

@@ -1,6 +1,6 @@
 /**
  * Modelo: Empresa (Clínica)
- * Representa a entidade principal do SaaS multi-tenant FisioCell.
+ * Representa a entidade principal do SaaS multi-tenant FisioFernandes.
  * Cada empresa agrupa Salas, Utilizadores e Consultas.
  *
  * F0: Removido smoobu_api_key (integração Smoobu eliminada).

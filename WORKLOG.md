@@ -1964,3 +1964,58 @@ Stage Summary:
 - **README**: reescrito de raiz para refletir o estado real pós-F9 (Fisioterapia, Consultas, Pacientes, 4 roles, 5 cron jobs, endpoints F1–F9). Removidas todas as menções legacy.
 - **Testes**: backend 130/130 ✓; frontend tsc ✓ + next build ✓.
 - **Próximo passo**: commit + push para branch `dev` com mensagem `fix: resolucao de divida tecnica critica e atualizacao do readme`.
+
+---
+
+Task ID: R0-FF
+Agent: Z.ai Code
+Task: Rebranding global FisioCell → FisioFernandes em todo o repositório (backend + frontend + docs). O repo foi renomeado no GitHub (FisioCell → FisioFernandes, com redirect automático), mas o código ainda usava o nome legado "FisioCell"/"fisiocell" em 182 ocorrências espalhadas por ~80 ficheiros. Esta tarefa consolida a identidade definitiva.
+
+Work Log:
+- Mapeamento exaustivo (grep): 182 ocorrências de `fisiocell`/`FisioCell` em ~80 ficheiros de código fonte (backend + frontend + docs), 23 ocorrências no WORKLOG.md (preservadas — histórico) e 0 no agent-ctx/.
+- Remote URL atualizado: `https://github.com/makigero-lab/FisioCell.git` → `https://github.com/makigero-lab/FisioFernandes.git` (o GitHub renomeou o repo; o redirect automático funcionava, mas atualizei para evitar avisos).
+
+### R0-FF-A — Backend (branding + cookies + env)
+- `backend/package.json`: name "fisiocell-backend" → "fisiofernandes-backend"; description "(FisioCell)" → "(FisioFernandes)".
+- `backend/server.js`: cabeçalho "FisioCell - API de gestão para Clínicas de Fisioterapia" → "FisioFernandes - API de gestão para Clínicas de Fisioterapia"; VAPID_SUBJECT mailto:admin@fisiocell.com → admin@fisiofernandes.com; healthcheck "API do FisioCell..." → "API do FisioFernandes online e ligada à BD!".
+- `backend/.env.example`: rebranding completo (MONGODB_URI `fisiocell` → `fisiofernandes`, JWT_SECRET `fisiocell-dev-secret` → `fisiofernandes-dev-secret`, FRONTEND_URL `fisiocell.vercel.app` → `fisiofernandes.vercel.app`, VAPID_SUBJECT `admin@fisiocell.com` → `admin@fisiofernandes.com`).
+- `backend/middleware/auth.js`: JWT_SECRET fallback "fisiocell-dev-secret-change-me" → "fisiofernandes-dev-secret-change-me".
+- `backend/utils/geocoding.js`: User-Agent Nominatim "FisioCell/1.0 (fisiocell.app)" → "FisioFernandes/1.0 (fisiofernandes.app)".
+- `backend/utils/push.js`: VAPID_SUBJECT mailto:admin@fisiocell.com → admin@fisiofernandes.com (2 sítios).
+- `backend/tests/server.test.js`: mensagem esperada do healthcheck atualizada para "API do FisioFernandes online e ligada à BD!".
+- Cabeçalhos "— FisioCell" → "— FisioFernandes" em todos os ficheiros backend (controllers, models, routes, utils, jobs, middleware, scripts auxiliares) via sed.
+- Scripts auxiliares (`criar-admin.js`, `testar-login.js`, `forcar-password.js`, `fix-password.js`): mensagens e emails rebranded.
+
+### R0-FF-B — Frontend (cookies + manifest + SW + páginas + componentes)
+- Cookies de autenticação renomeados em 13 ficheiros: `fisiocell_token` → `fisiofernandes_token`; `fisiocell_admin_token` → `fisiofernandes_admin_token`. Ficheiros: middleware.ts, login/logout/exit-impersonation/me routes, impersonar/[id], admin/[...path], admin/empresas/*, gestor/[...path], staff/[...path].
+- sessionStorage/cookie: `fisiocell_impersonating` → `fisiofernandes_impersonating` (impersonation-banner.tsx, admin/page.tsx); `fisiocell_theme` → `fisiofernandes_theme` (theme-toggle.tsx).
+- `frontend/public/manifest.json`: "FisioCell — Gestão de Clínicas de Fisioterapia" → "FisioFernandes — Gestão de Clínicas de Fisioterapia"; short_name e description atualizados.
+- `frontend/package.json`: name "fisiocell-frontend" → "fisiofernandes-frontend"; description corrigida de "Alojamento Local" para "Clínicas de Fisioterapia" (bug pré-existente herdado do All2gether).
+- `frontend/.env.example`: NEXT_PUBLIC_API_URL `fisiocell-backend.onrender.com` → `fisiofernandes-backend.onrender.com`; cabeçalho "FisioFernandes Frontend".
+- `frontend/worker/index.js` + `frontend/public/worker-*.js`: título de notificação push default "FisioCell" → "FisioFernandes".
+- `frontend/src/app/layout.tsx`: metadata title "FisioCell — Gestão de Alojamento Local" → "FisioFernandes — Gestão de Clínicas de Fisioterapia"; description atualizada para "SaaS de gestão para Clínicas de Fisioterapia: marcações, pacientes, horários e fichas clínicas."; appleWebApp.title "FisioFernandes".
+- `frontend/src/app/login/page.tsx`: "FisioFernandes · Gestão de Alojamento Local" → "FisioFernandes · Gestão de Clínicas de Fisioterapia".
+- `frontend/src/app/page.tsx` (landing): "A plataforma de gestão para Alojamento Local. Atribuição inteligente de tarefas de limpeza." → "A plataforma de gestão para Clínicas de Fisioterapia. Marcações, pacientes, horários e fichas clínicas."; rodapé atualizado.
+- Todas as referências visuais "FisioCell" em sidebars (admin-sidebar, gestor-sidebar), impersonation-banner, theme-toggle, páginas (admin, gestor/*, staff/*) → "FisioFernandes" via sed.
+- `frontend/src/app/globals.css`: "Tema FisioCell" → "Tema FisioFernandes".
+- `frontend/src/app/gestor/relatorios/page.tsx`: título do PDF export "Relatorio FisioCell" → "Relatorio FisioFernandes".
+
+### R0-FF-C — Documentação (README + docs/*.md)
+- `README.md`: rebranding global (FisioCell→FisioFernandes, fisiocell→fisiofernandes). Repositório atualizado para https://github.com/makigero-lab/FisioFernandes.
+- `docs/BACKEND.md`, `docs/FRONTEND.md`, `docs/ARQUITETURA.md`: rebranding global via sed.
+- **WORKLOG.md PRESERVADO** — 23 ocorrências históricas de fisiocell/FisioCell mantidas intencionalmente (são o registo de evolução do projeto: migrações Autocell→FisioCell→FisioFernandes). Apenas acrescentada esta entrada R0-FF no final.
+- `agent-ctx/` PRESERVADO (registo histórico da Task 56).
+
+### R0-FF-D — Validação
+- Backend: `node --check` em 56 ficheiros — todos OK. Testes Jest: **130/130 a passar** ✓ (incluindo o teste do healthcheck que agora espera "API do FisioFernandes online e ligada à BD!").
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (todas as rotas compilaram).
+- Verificação final grep: ZERO ocorrências de fisiocell/FisioCell em todo o repo (excluindo WORKLOG.md e agent-ctx/ que preservam o histórico intencionalmente, e a cache `.next/` que é regenerada a cada build).
+
+Stage Summary:
+- **Rebranding completo:** FisioCell → FisioFernandes aplicado em ~80 ficheiros (backend + frontend + docs). 182 ocorrências → ZERO residuais (fora do histórico preservado).
+- **Cookies renomeados:** `fisiofernandes_token` + `fisiofernandes_admin_token` em 13 ficheiros frontend. ⚠️ Nota: renomear cookies invalida sessões em produção — todos os utilizadores terão de fazer login novamente após deploy.
+- **Domínio corrigido:** bugs pré-existentes herdados do All2gether (description/title com "Alojamento Local") corrigidos para "Clínicas de Fisioterapia" em package.json, layout.tsx, login/page.tsx, page.tsx (landing).
+- **Remote URL atualizado:** `https://github.com/makigero-lab/FisioFernandes.git` (repo renomeado no GitHub).
+- **Histórico preservado:** WORKLOG.md (23 ocorrências) e agent-ctx/ mantidos intencionalmente como registo de evolução do projeto.
+- **Testes:** backend 130/130 ✓; frontend tsc ✓ + next build ✓.
+- **Próximo passo:** commit + push para branch `dev` com mensagem `chore(rebranding): alteracao global da identidade para FisioFernandes`.

@@ -1,5 +1,5 @@
 /**
- * Arquivista Consultas — Cron Job (FisioCell)
+ * Arquivista Consultas — Cron Job (FisioFernandes)
  *
  * F7 — Todos os domingos às 03:00 (Europe/Lisbon), move consultas concluídas
  * ou canceladas com mais de 6 meses para a coleção `consultas_arquivo`

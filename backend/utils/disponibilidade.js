@@ -1,5 +1,5 @@
 /**
- * Disponibilidade — FisioCell
+ * Disponibilidade — FisioFernandes
  *
  * Utilitário partilhado para validar se um utilizador está disponível para
  * receber uma tarefa num determinado dia.

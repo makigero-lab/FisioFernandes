@@ -428,7 +428,7 @@ export default function StaffPage() {
 
       {/* Rodapé */}
       <footer className="border-t px-5 py-4 text-center text-xs text-muted-foreground">
-        FisioCell · Área do Staff
+        FisioFernandes · Área do Staff
       </footer>
 
       {/* Dialog: Reportar Falta Hoje */}
