@@ -32,7 +32,7 @@ import { cn, parsearDataSegura } from "@/lib/utils";
  *
  * v1.56.0 (Prompt 78):
  *   - Vista "Hoje" em bloco visual compacto (tarefas + hora de início).
- *   - Lista dos próximos 30 dias, cada tarefa clicável → /staff/tarefas/[id].
+ *   - Lista dos próximos 30 dias, cada tarefa clicável → /staff/consultas/[id].
  *   - Hora de início ao lado de cada tarefa (lida do campo data ISO).
  *
  * Consome GET /api/auth/me/calendario (via proxy same-origin com cookie httpOnly).
@@ -255,7 +255,7 @@ export default function StaffCalendarioPage() {
                       const Icon = tipoIcon[t.tipo] ?? SprayCan;
                       const hora = horaInicio(t.data);
                       return (
-                        <Link key={t._id} href={`/staff/tarefas/${t._id}`} prefetch>
+                        <Link key={t._id} href={`/staff/consultas/${t._id}`} prefetch>
                           <Card className="cursor-pointer border-primary/30 transition-all hover:border-primary hover:shadow-md active:scale-[0.99]">
                             <CardContent className="flex items-center gap-3 p-3">
                               {/* Bloco de hora (destaque visual) */}
@@ -364,7 +364,7 @@ export default function StaffCalendarioPage() {
                             const Icon = tipoIcon[t.tipo] ?? SprayCan;
                             const hora = horaInicio(t.data);
                             return (
-                              <Link key={t._id} href={`/staff/tarefas/${t._id}`} prefetch>
+                              <Link key={t._id} href={`/staff/consultas/${t._id}`} prefetch>
                                 <Card className="cursor-pointer border-border/60 transition-all hover:border-primary/40 hover:shadow-sm active:scale-[0.99]">
                                   <CardContent className="flex items-center gap-3 p-3">
                                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">

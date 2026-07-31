@@ -334,6 +334,11 @@ export interface ConsultaDTO {
     plano: string;
     tratamento_efetuado: string;
     cedula_assinante: string;
+    // F5 — Snapshot do protocolo aplicado (imutável após criação da consulta).
+    protocolo_aplicado?: {
+      nome: string;
+      items: { texto: string; concluido: boolean }[];
+    }[];
   };
   criada_por: string | { _id: string; nome: string };
   concluida_em?: string | null;

@@ -2019,3 +2019,70 @@ Stage Summary:
 - **Histórico preservado:** WORKLOG.md (23 ocorrências) e agent-ctx/ mantidos intencionalmente como registo de evolução do projeto.
 - **Testes:** backend 130/130 ✓; frontend tsc ✓ + next build ✓.
 - **Próximo passo:** commit + push para branch `dev` com mensagem `chore(rebranding): alteracao global da identidade para FisioFernandes`.
+
+---
+
+Task ID: RF1
+Agent: Z.ai Code
+Task: Refatorização da área do Fisioterapeuta (frontend /staff) para consumir a API de Consultas em vez dos stubs legacy de Tarefas. A área /staff ainda usava componentes e endpoints herdados do projeto base (Alojamento Local — Tarefas, Propriedades, Checklists), que devolviam arrays vazios ou 410 Gone. O backend já fornece a API correta de Consultas (F4-F7).
+
+Work Log:
+
+### RF1-A — Backend: estender atualizarNotaClinica para aceitar `estado`
+- **Problema**: o fisioterapeuta precisava de mudar o estado da consulta (marcada → em_curso → concluida), mas o endpoint `PUT /api/gestor/consultas/:id` (atualizarConsulta) tem permissão `isRececionista` (exclui fisioterapeuta). O fisio só tinha acesso a `PATCH /:id/nota-clinica` (isClinico).
+- **Solução**: estendido `consultaController.atualizarNotaClinica` (backend/controllers/consultaController.js) para aceitar `estado` no body. Transições permitidas: apenas `em_curso` (Iniciar) e `concluida` (Concluir), a partir dos estados `marcada`/`confirmada`/`em_curso`. Consultas canceladas/faltou/nao_compareceu são imutáveis. Ao concluir, define `concluida_em = new Date()`. A cédula continua a ser validada a partir do perfil do fisio (perfil_profissional.cedula), não do body.
+
+### RF1-B — Frontend: proxy routes para /api/staff/consultas
+- **Criada** `frontend/src/app/api/staff/consultas/hoje/route.ts` — GET que calcula o intervalo de hoje (meia-noite UTC a meia-noite de amanhã) e faz proxy para `${BACKEND_URL}/api/gestor/consultas?inicio=...&fim=...` injetando o JWT. O backend aplica automaticamente o filtro `fisioterapeuta_id = req.user.id` quando o role é fisioterapeuta.
+- **Criada** `frontend/src/app/api/staff/consultas/[...path]/route.ts` — catch-all proxy que mapeia `/api/staff/consultas/*` → `/api/gestor/consultas/*` no backend (para `GET /:id`, `PATCH /:id/nota-clinica`, etc.). Injeta o JWT do cookie httpOnly.
+
+### RF1-C — Frontend: renomear pasta /staff/tarefas → /staff/consultas
+- **Removida** pasta `frontend/src/app/staff/tarefas/` (legacy).
+- **Criada** `frontend/src/app/staff/consultas/[id]/page.tsx` — página de detalhe de consulta. Faz `GET /api/staff/consultas/:id` (proxy → `/api/gestor/consultas/:id`), passa o `ConsultaDTO` ao `DetalheConsultaClient`. Trata 404 (não encontrada) e 403 (sem permissão — fisio só vê as suas consultas).
+
+### RF1-D — Frontend: refatorizar /staff/page.tsx (Minhas Consultas de Hoje)
+- **Reescrita** `frontend/src/app/staff/page.tsx`:
+  - Antes: `fetch("/api/auth/me/tarefas")` (stub que devolvia `[]`).
+  - Agora: `fetch("/api/staff/consultas/hoje")` (proxy → `/api/gestor/consultas` com filtro de hoje + fisioterapeuta_id automático).
+  - Interface `TarefaReal` + `adaptarTarefa` → substituídas por `ConsultaDTO` direto de `lib/api.ts`.
+  - `<TaskCard tarefa={...} />` → `<ConsultaCard consulta={c} />`.
+  - Textos: "Minhas Tarefas" → "Minhas Consultas de Hoje"; "tarefas" → "consultas"; "A carregar tarefas…" → "A carregar consultas…"; "Sem tarefas neste dia" → "Sem consultas marcadas para hoje".
+  - Navegação por dias removida (o endpoint `/api/staff/consultas/hoje` devolve só as de hoje; navegação para outros dias fica via `/staff/calendario`).
+  - Rodapé: "Área do Staff" → "Área do Fisioterapeuta".
+  - Diálogo "Reportar Falta Hoje" mantido (funcionalidade ausências preservada).
+
+### RF1-E — Frontend: novos componentes staff
+- **Criado** `frontend/src/components/staff/consulta-card.tsx`:
+  - Componente `<ConsultaCard consulta={ConsultaDTO} />`.
+  - Mostra: nome do paciente, tipo de consulta (Primeira Consulta/Sessão/Reavaliação/Alta/Grupo), hora de início, duração, sala, estado (Badge colorido).
+  - Cartão clicável → `/staff/consultas/:id`.
+  - Substitui o antigo `task-card.tsx` (legacy do Alojamento Local — Tarefas de Limpeza).
+- **Criado** `frontend/src/components/staff/detalhe-consulta-client.tsx`:
+  - Componente `<DetalheConsultaClient consulta={ConsultaDTO} />`.
+  - Mostra: dados da consulta (tipo, sala, fisio, data/hora, duração, estado), dados do paciente (nome, telefone), protocolo aplicado (snapshot com items marcáveis), formulário Nota Clínica SOAP (S/O/A/P/Tratamento), campo de Cédula Profissional (obrigatório para concluir).
+  - Botões: "Iniciar Consulta" (muda estado para `em_curso`), "Guardar Nota (rascunho)" (grava SOAP sem mudar estado), "Concluir Consulta" (muda estado para `concluida` + grava SOAP + exige cédula).
+  - Consultas concluídas são imutáveis (RGPD/legal) — campos disabled + badge "Imutável".
+  - Substitui o antigo `detalhe-tarefa-client.tsx` (legacy).
+- **Apagados** `task-card.tsx` e `detalhe-tarefa-client.tsx` (legacy).
+
+### RF1-F — Frontend: atualização de links e notification-bell
+- `frontend/src/components/notification-bell.tsx`: redirect role-aware. Ao clicar numa notificação com `consulta_id`: se o path atual começa com `/staff` (fisio) → `/staff/consultas/:id`; caso contrário (gestor) → `/gestor/consultas/:id`. Usa `usePathname()` do next/navigation.
+- `frontend/src/app/staff/calendario/page.tsx`: links `/staff/tarefas/:id` → `/staff/consultas/:id` (3 ocorrências via sed). A página em si ainda usa o stub `/me/calendario` (legacy — dívida técnica de Fase 2), mas os links agora apontam para o caminho correto.
+
+### RF1-G — Frontend: DTO atualizado
+- `frontend/src/lib/api.ts`: `ConsultaDTO.nota_clinica` ganhou campo `protocolo_aplicado?: { nome: string; items: { texto: string; concluido: boolean }[] }[]` (F5 — snapshot do protocolo aplicado, imutável após criação).
+
+### RF1-H — Validação
+- Backend: `node --check` em `consultaController.js` — OK. Testes Jest: **130/130 a passar** ✓ (a extensão de `atualizarNotaClinica` para aceitar `estado` é retrocompatível — `estado` é opcional no body).
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (rota `ƒ /staff/consultas/[id]` registada como dinâmica).
+- Confirmado: zero referências residuais a `/staff/tarefas`, `TaskCard`, ou `DetalheTarefaClient` no código frontend (apenas em docs/WORKLOG como histórico).
+
+Stage Summary:
+- **Backend**: `atualizarNotaClinica` estendido para aceitar `estado` (fisio pode Iniciar `em_curso` / Concluir `concluida`) — transições restritas e validadas, cédula continua a ser do perfil.
+- **Frontend proxy routes**: `/api/staff/consultas/hoje` (GET, calcula intervalo de hoje) + `/api/staff/consultas/[...path]` (catch-all → `/api/gestor/consultas/*`).
+- **Páginas**: `/staff/page.tsx` reescrita (Minhas Consultas de Hoje); `/staff/consultas/[id]/page.tsx` criada (detalhe com SOAP).
+- **Componentes**: `consulta-card.tsx` + `detalhe-consulta-client.tsx` criados; `task-card.tsx` + `detalhe-tarefa-client.tsx` apagados (legacy).
+- **Navegação**: `notification-bell.tsx` redirect role-aware; `staff/calendario` links atualizados.
+- **DTO**: `ConsultaDTO.nota_clinica.protocolo_aplicado` adicionado.
+- **Testes**: backend 130/130 ✓; frontend tsc ✓ + next build ✓ (rota `/staff/consultas/[id]` registada).
+- **Próximo passo**: commit + push para branch `dev`.

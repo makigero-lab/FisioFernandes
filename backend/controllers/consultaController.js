@@ -701,7 +701,26 @@ exports.atualizarNotaClinica = async (req, res) => {
       });
     }
 
-    const { subjetivo, objetivo, avaliacao, plano, tratamento_efetuado, protocolo_aplicado } = req.body || {};
+    const { subjetivo, objetivo, avaliacao, plano, tratamento_efetuado, protocolo_aplicado, estado } = req.body || {};
+
+    // RF1 — Fisioterapeuta pode mudar o estado da consulta para 'em_curso'
+    // (Iniciar) ou 'concluida' (Concluir) juntamente com a nota SOAP.
+    // Só permite estas transições a partir do estado 'marcada'/'confirmada'/'em_curso'.
+    // Consultas canceladas/faltou/nao_compareceu são imutáveis.
+    if (estado !== undefined) {
+      const estadosPermitidos = ['em_curso', 'concluida'];
+      const estadosOrigemValidos = ['marcada', 'confirmada', 'em_curso'];
+      if (!estadosPermitidos.includes(estado)) {
+        return res.status(400).json({ erro: 'Estado não permitido via nota clínica. Use em_curso ou concluida.' });
+      }
+      if (!estadosOrigemValidos.includes(consulta.estado)) {
+        return res.status(400).json({ erro: `Consulta em estado "${consulta.estado}" não pode ser iniciada/concluída pelo fisioterapeuta.` });
+      }
+      consulta.estado = estado;
+      if (estado === 'concluida' && !consulta.concluida_em) {
+        consulta.concluida_em = new Date();
+      }
+    }
 
     if (subjetivo !== undefined) consulta.nota_clinica.subjetivo = String(subjetivo);
     if (objetivo !== undefined) consulta.nota_clinica.objetivo = String(objetivo);

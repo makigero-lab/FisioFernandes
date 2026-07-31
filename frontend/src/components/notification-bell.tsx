@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Bell, Check } from "lucide-react";
 
 import { cn, parsearDataSegura } from "@/lib/utils";
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
  */
 export function NotificationBell() {
   const router = useRouter();
+  const pathname = usePathname();
   const [naoLidas, setNaoLidas] = useState(0);
   const [aberto, setAberto] = useState(false);
   const [notificacoes, setNotificacoes] = useState<Array<{
@@ -135,9 +136,11 @@ export function NotificationBell() {
       }
     }
     setAberto(false);
-    // Redireciona para a consulta (gestor) ou para o url.
+    // Redireciona para a consulta (role-aware) ou para o url.
+    // Fisioterapeuta (em /staff/*) → /staff/consultas/:id; gestor → /gestor/consultas.
     if (n.consulta_id) {
-      router.push(`/gestor/consultas`);
+      const area = pathname?.startsWith("/staff") ? "/staff" : "/gestor";
+      router.push(`${area}/consultas/${n.consulta_id}`);
     } else if (n.url) {
       router.push(n.url);
     }
