@@ -1,5 +1,5 @@
 /**
- * Briefing Diário Fisio — Cron Job (FisioCell)
+ * Briefing Diário Fisio — Cron Job (FisioFernandes)
  *
  * F7 — Todos os dias às 08:00 (Europe/Lisbon), envia push a cada
  * fisioterapeuta com consultas marcadas para hoje.

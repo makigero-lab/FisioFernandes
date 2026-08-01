@@ -40,12 +40,12 @@ export default function HomePage() {
         </div>
 
         <h1 className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-          FisioCell
+          FisioFernandes
         </h1>
         <p className="mt-3 max-w-md text-base font-light leading-relaxed text-muted-foreground">
-          A plataforma de gestão para Alojamento Local.
+          A plataforma de gestão para Clínicas de Fisioterapia.
           <br className="hidden sm:block" />
-          Atribuição inteligente de tarefas de limpeza.
+          Marcações, pacientes, horários e fichas clínicas.
         </p>
 
         {/* Separador discreto */}
@@ -63,7 +63,7 @@ export default function HomePage() {
       </div>
 
       <p className="relative z-10 mt-12 text-xs font-light tracking-wide text-muted-foreground">
-        FisioCell · Gestão de Alojamento Local
+        FisioFernandes · Gestão de Clínicas de Fisioterapia
       </p>
     </main>
   );

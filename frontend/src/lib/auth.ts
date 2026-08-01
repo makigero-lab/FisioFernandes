@@ -1,5 +1,5 @@
 /**
- * Utilitários de Autenticação (frontend) — FisioCell
+ * Utilitários de Autenticação (frontend) — FisioFernandes
  *
  * v1.14.0 — Cookie HttpOnly:
  *   O token JWT vive EXCLUSIVAMENTE num cookie httpOnly definido pelo

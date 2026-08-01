@@ -9,7 +9,7 @@ async function testarLogin() {
     await mongoose.connect(process.env.MONGO_URI);
     
     console.log('🔍 A procurar o admin...');
-    const admin = await Utilizador.findOne({ email: 'admin@fisiocell.com' });
+    const admin = await Utilizador.findOne({ email: 'admin@fisiofernandes.com' });
     
     if (!admin) {
       console.log('❌ O admin não existe na base de dados.');

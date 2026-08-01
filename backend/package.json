@@ -1,7 +1,7 @@
 {
-  "name": "fisiocell-backend",
+  "name": "fisiofernandes-backend",
   "version": "1.0.0",
-  "description": "API REST do SaaS de gestão para Clínicas de Fisioterapia (FisioCell)",
+  "description": "API REST do SaaS de gestão para Clínicas de Fisioterapia (FisioFernandes)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

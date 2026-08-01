@@ -1,5 +1,5 @@
 /**
- * Rotas de Horários — FisioCell
+ * Rotas de Horários — FisioFernandes
  *
  * Prefixo montado em server.js: /api/gestor/horarios
  *

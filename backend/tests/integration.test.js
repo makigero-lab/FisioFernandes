@@ -1,5 +1,5 @@
 /**
- * Testes de integração do backend (FisioCell) — Jest + Supertest + MongoDB em memória.
+ * Testes de integração do backend (FisioFernandes) — Jest + Supertest + MongoDB em memória.
  *
  * Cobertura:
  *   - Health check com BD ligada (GET /api/health)

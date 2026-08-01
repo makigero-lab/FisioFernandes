@@ -1,5 +1,5 @@
 /**
- * Consulta Controller — FisioCell
+ * Consulta Controller — FisioFernandes
  *
  * F4 — CRUD de Consultas com validação de conflitos.
  *
@@ -701,7 +701,26 @@ exports.atualizarNotaClinica = async (req, res) => {
       });
     }
 
-    const { subjetivo, objetivo, avaliacao, plano, tratamento_efetuado, protocolo_aplicado } = req.body || {};
+    const { subjetivo, objetivo, avaliacao, plano, tratamento_efetuado, protocolo_aplicado, estado } = req.body || {};
+
+    // RF1 — Fisioterapeuta pode mudar o estado da consulta para 'em_curso'
+    // (Iniciar) ou 'concluida' (Concluir) juntamente com a nota SOAP.
+    // Só permite estas transições a partir do estado 'marcada'/'confirmada'/'em_curso'.
+    // Consultas canceladas/faltou/nao_compareceu são imutáveis.
+    if (estado !== undefined) {
+      const estadosPermitidos = ['em_curso', 'concluida'];
+      const estadosOrigemValidos = ['marcada', 'confirmada', 'em_curso'];
+      if (!estadosPermitidos.includes(estado)) {
+        return res.status(400).json({ erro: 'Estado não permitido via nota clínica. Use em_curso ou concluida.' });
+      }
+      if (!estadosOrigemValidos.includes(consulta.estado)) {
+        return res.status(400).json({ erro: `Consulta em estado "${consulta.estado}" não pode ser iniciada/concluída pelo fisioterapeuta.` });
+      }
+      consulta.estado = estado;
+      if (estado === 'concluida' && !consulta.concluida_em) {
+        consulta.concluida_em = new Date();
+      }
+    }
 
     if (subjetivo !== undefined) consulta.nota_clinica.subjetivo = String(subjetivo);
     if (objetivo !== undefined) consulta.nota_clinica.objetivo = String(objetivo);
@@ -740,6 +759,23 @@ exports.atualizarNotaClinica = async (req, res) => {
       recurso_id: consulta._id,
       descricao: `Nota clínica SOAP atualizada`,
     });
+
+    // W1 — Se a consulta foi concluída neste pedido, notifica o portal Autocell
+    // (webhook fire-and-forget, sem await). Payload esparso: só IDs críticos.
+    // O Autocell usa este evento para saber que uma nota clínica foi submetida
+    // e assinada com cédula (para métricas, faturação, orquestração, etc.).
+    if (estado === 'concluida') {
+      try {
+        const { enviarEventoParaAutocell } = require('../utils/outboundWebhook');
+        enviarEventoParaAutocell('consulta.concluida', {
+          consulta_id: String(consulta._id),
+          fisioterapeuta_id: String(consulta.fisioterapeuta_id),
+          paciente_id: String(consulta.paciente_id),
+        });
+      } catch (e) {
+        // Fire-and-forget: nunca bloqueia a resposta ao fisio.
+      }
+    }
 
     return res.status(200).json({ consulta });
   } catch (err) {

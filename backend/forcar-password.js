@@ -14,7 +14,7 @@ async function forcarPassword() {
     
     // 2. Injeção direta: Bypass aos hooks e ao 'select: false'
     const resultado = await Utilizador.updateOne(
-      { email: 'admin@fisiocell.com' },
+      { email: 'admin@fisiofernandes.com' },
       { $set: { 
           password: hashSegura,
           ativo: true,

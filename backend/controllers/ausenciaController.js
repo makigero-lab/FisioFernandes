@@ -1,5 +1,5 @@
 /**
- * Ausência Controller — FisioCell
+ * Ausência Controller — FisioFernandes
  *
  * Gestão de Folgas e Férias da equipa.
  *

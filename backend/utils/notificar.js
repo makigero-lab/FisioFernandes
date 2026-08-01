@@ -1,5 +1,5 @@
 /**
- * Helper: Notificações para utilizadores — FisioCell
+ * Helper: Notificações para utilizadores — FisioFernandes
  *
  * Prompt 114 — Envia DOIS tipos de notificação:
  *   1. Push (Web Push API) — se o utilizador tiver pushSubscription ativa.
@@ -41,7 +41,7 @@ function getNotificacaoModel() {
  *
  * @param {string} utilizadorId
  * @param {string} mensagem
- * @param {{ tipo?: string, url?: string, empresa_id?: string, tarefa_id?: string }} [opts]
+ * @param {{ tipo?: string, url?: string, empresa_id?: string, consulta_id?: string }} [opts]
  */
 async function criarNotificacaoInApp(utilizadorId, mensagem, opts = {}) {
   try {
@@ -50,9 +50,9 @@ async function criarNotificacaoInApp(utilizadorId, mensagem, opts = {}) {
       utilizador_id: utilizadorId,
       mensagem,
       tipo: opts.tipo || 'sistema',
-      url: opts.url || '/staff',
+      url: opts.url || '/gestor/consultas',
       empresa_id: opts.empresa_id || null,
-      tarefa_id: opts.tarefa_id || null,
+      consulta_id: opts.consulta_id || null,
       lida: false,
     });
   } catch (err) {
@@ -72,14 +72,15 @@ async function criarNotificacaoInApp(utilizadorId, mensagem, opts = {}) {
  * @param {string} utilizadorId — ID do utilizador
  * @param {string} title — Título da notificação push
  * @param {string} body — Corpo da notificação push
- * @param {string} [url='/staff'] — URL para abrir ao clicar
- * @param {{ tipo?: string, mensagem?: string, empresa_id?: string, criarInApp?: boolean }} [opts]
+ * @param {string} [url='/gestor/consultas'] — URL para abrir ao clicar
+ * @param {{ tipo?: string, mensagem?: string, empresa_id?: string, criarInApp?: boolean, consulta_id?: string }} [opts]
  *   - opts.tipo: categoria da notificação in-app (só relevante se criarInApp)
  *   - opts.mensagem: mensagem in-app (se diferente de `${title}: ${body}`)
  *   - opts.empresa_id: para auditoria/scoping da notificação
  *   - opts.criarInApp: se true, cria também registo in-app (sino). Default false.
+ *   - opts.consulta_id: referência à Consulta que originou a notificação (DT1/F8)
  */
-async function notificarUtilizador(utilizadorId, title, body, url = '/staff', opts = {}) {
+async function notificarUtilizador(utilizadorId, title, body, url = '/gestor/consultas', opts = {}) {
   try {
     const criarInApp = opts.criarInApp === true;
 
@@ -108,7 +109,7 @@ async function notificarUtilizador(utilizadorId, title, body, url = '/staff', op
         tipo: opts.tipo || 'sistema',
         url,
         empresa_id: empresaId,
-        tarefa_id: opts.tarefa_id || null,
+        consulta_id: opts.consulta_id || null,
       });
     }
   } catch (err) {

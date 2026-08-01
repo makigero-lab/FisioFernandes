@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Bell, Check } from "lucide-react";
 
 import { cn, parsearDataSegura } from "@/lib/utils";
@@ -17,13 +17,14 @@ import { Button } from "@/components/ui/button";
  *   - Dropdown com max-h-[70vh] + overflow-y-auto, w-[300px] sm:w-[400px],
  *     ancorado à direita (right-0 origin-top-right) — não transborda mobile.
  *   - Notificações clicáveis: ao clicar, faz PATCH para marcar como lida e
- *     redireciona para a tarefa em questão (se houver tarefa_id).
+ *     redireciona para a consulta em questão (se houver consulta_id).
  *   - Ao abrir, marca todas como lidas (depois de mostrar a lista).
  *
  * Polling: a cada 30s, refaz a contagem de não-lidas.
  */
 export function NotificationBell() {
   const router = useRouter();
+  const pathname = usePathname();
   const [naoLidas, setNaoLidas] = useState(0);
   const [aberto, setAberto] = useState(false);
   const [notificacoes, setNotificacoes] = useState<Array<{
@@ -33,7 +34,7 @@ export function NotificationBell() {
     url: string;
     lida: boolean;
     data: string;
-    tarefa_id?: string | null;
+    consulta_id?: string | null;
   }>>([]);
   const [carregando, setCarregando] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -115,9 +116,9 @@ export function NotificationBell() {
   }
 
   /**
-   * Prompt 118 — Ao clicar numa notificação:
+   * Prompt 118 / DT1 — Ao clicar numa notificação:
    *   1. Faz PATCH para marcar como lida (se ainda não estiver).
-   *   2. Redireciona para a tarefa (se houver tarefa_id) ou para o url.
+   *   2. Redireciona para a consulta (se houver consulta_id) ou para o url.
    */
   async function handleClickNotificacao(n: typeof notificacoes[number]) {
     // Marca como lida (individual) se ainda não estiver.
@@ -135,9 +136,11 @@ export function NotificationBell() {
       }
     }
     setAberto(false);
-    // Redireciona para a tarefa (staff) ou para o url.
-    if (n.tarefa_id) {
-      router.push(`/staff/tarefas/${n.tarefa_id}`);
+    // Redireciona para a consulta (role-aware) ou para o url.
+    // Fisioterapeuta (em /staff/*) → /staff/consultas/:id; gestor → /gestor/consultas.
+    if (n.consulta_id) {
+      const area = pathname?.startsWith("/staff") ? "/staff" : "/gestor";
+      router.push(`${area}/consultas/${n.consulta_id}`);
     } else if (n.url) {
       router.push(n.url);
     }

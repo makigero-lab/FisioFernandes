@@ -1,5 +1,5 @@
 /**
- * Rotas de Protocolos Clínicos — FisioCell
+ * Rotas de Protocolos Clínicos — FisioFernandes
  *
  * Prefixo montado em server.js: /api/gestor/protocolos
  *

@@ -1,5 +1,5 @@
 /**
- * Lembrete 2h Consulta — Cron Job (FisioCell)
+ * Lembrete 2h Consulta — Cron Job (FisioFernandes)
  *
  * F7 — A cada 15 minutos, procura consultas que começam em ~2h (entre 1h45 e 2h15
  * de agora) e envia push ao fisioterapeuta. Marca lembrete_2h_enviado=true para

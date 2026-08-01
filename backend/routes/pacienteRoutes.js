@@ -1,5 +1,5 @@
 /**
- * Rotas de Pacientes — FisioCell
+ * Rotas de Pacientes — FisioFernandes
  *
  * Prefixo montado em server.js: /api/gestor/pacientes
  *

@@ -1,4 +1,4 @@
-# Documentação Técnica — Backend (FisioCell)
+# Documentação Técnica — Backend (FisioFernandes)
 
 > ⚠️ **F0 — Documentação em transição (F9 concluída).** O projeto migrou de Alojamento Local para Fisioterapia. A integração Smoobu foi removida. **F8 — Limpeza:** o modelo `Tarefa` foi **removido** (substituído por `Consulta` em F4); o `ModeloChecklist` foi extinto (substituído por `ModeloProtocolo` em F5); o modelo `Propriedade` foi **mantido como alias de Sala** (ainda referenciado por `Consulta.sala_id` — a migração para um modelo `Sala` dedicado foi adiada). **F9 — Documentos:** novo modelo `Documento` (anexos clínicos) + 5 endpoints em `/api/gestor/documentos` + storage local via multer (pasta `uploads/`, filtro PDF/imagens/DOC/TXT, limite 20MB) + consentimento RGPD + soft delete. Ver [`docs/ARQUITETURA.md`](ARQUITETURA.md) para o roadmap completo F0–F9.
 
@@ -80,7 +80,7 @@ backend/
     ├── protocoloRoutes.js    # Rotas /api/gestor/protocolos/* (F5)
     ├── documentoRoutes.js    # Rotas /api/gestor/documentos/* (F9) — multer storage local
     ├── staffRoutes.js        # Rotas /api/staff/*
-    ├── authRoutes.js         # POST /api/auth/login, GET /api/auth/me
+    ├── authRoutes.js         # POST /api/auth/login, GET /api/auth/sso (SSO), GET /api/auth/me
     ├── ausenciaRoutes.js     # Rotas de ausências
     └── relatorioRoutes.js    # Rotas de relatórios
 ```
@@ -562,6 +562,108 @@ O endpoint `GET /api/gestor/consultas/validar` (função `validarConflitosEndpoi
 
 ---
 
+## 3.6. Sistema de Emissão de Webhooks (Outbound) — integração com o Autocell
+
+O FisioFernandes notifica o portal central de orquestração **Autocell** quando ocorrem eventos críticos, via webhooks outbound (POST assíncrono M2M, fire-and-forget). A comunicação usa payloads leves ("esparso") e assinatura HMAC-SHA256 para verificação de autenticidade.
+
+**Ficheiro:** `backend/utils/outboundWebhook.js` → exporta `enviarEventoParaAutocell(tipoEvento, dadosPayload)`.
+
+### Variáveis de ambiente
+
+| Variável | Descrição |
+|---|---|
+| `AUTOCELL_WEBHOOK_URL` | URL de destino no Autocell (ex.: `http://url-do-autocell/api/webhooks/fisiofernandes`). |
+| `AUTOCELL_WEBHOOK_SECRET` | Segredo partilhado usado para gerar a assinatura HMAC-SHA256. Tem de ser **idêntico** no Autocell (que o usa para verificar a autenticidade). |
+
+**Modo degradado:** se ambas as variáveis não estiverem definidas, `enviarEventoParaAutocell()` faz apenas `console.log` do evento (útil em dev) e **não** tenta o pedido de rede — os eventos são silenciosamente ignorados.
+
+### Estrutura do payload
+
+O payload é "esparso" — contém apenas a estrutura base e IDs críticos, nunca dados sensíveis nem conteúdo completo:
+
+```json
+{
+  "eventId": "550e8400-e29b-41d4-a716-446655440000",
+  "eventType": "consulta.concluida",
+  "timestamp": "2025-01-31T18:00:00.000Z",
+  "data": {
+    "consulta_id": "ObjectId",
+    "fisioterapeuta_id": "ObjectId",
+    "paciente_id": "ObjectId"
+  }
+}
+```
+
+- `eventId` — UUID v4 novo por evento (permite idempotência no receptor).
+- `eventType` — tipo do evento (ver catálogo abaixo).
+- `timestamp` — ISO 8601 string (UTC).
+- `data` — objeto com apenas os IDs críticos relevantes ao evento.
+
+### Assinatura HMAC-SHA256
+
+Cada webhook inclui o cabeçalho `X-FisioFernandes-Signature` com a assinatura HMAC-SHA256 do corpo JSON (em hexadecimal), gerada com `AUTOCELL_WEBHOOK_SECRET`:
+
+```
+X-FisioFernandes-Signature: 352a86109cd8ab0322adfdd614a78ef7...
+Content-Type: application/json
+```
+
+**Verificação no Autocell:** o receptor recalcula o HMAC do corpo recebido com o mesmo segredo e compara com o cabeçalho. Se bater → webhook autêntico; se não → rejeitado. Isto garante que o webhook veio do FisioFernandes (que conhece o segredo) e que o corpo não foi alterado em trânsito.
+
+### Cabeçalhos do pedido
+
+| Cabeçalho | Valor |
+|---|---|
+| `Content-Type` | `application/json` |
+| `X-FisioFernandes-Signature` | `<hmac_sha256_em_hex>` |
+
+### Catálogo de eventos
+
+Atualmente suporta dois eventos (o catálogo é extensível — adicionar novos eventos implica só uma nova chamada `enviarEventoParaAutocell` no ponto de integração correspondente):
+
+#### `consulta.concluida`
+
+Disparado quando um fisioterapeuta (ou diretor clínico) conclui uma consulta e submete a nota clínica SOAP (assinada com a cédula profissional). Integração em `consultaController.atualizarNotaClinica` — só dispara quando o `estado` passa a `'concluida'` nesse pedido.
+
+```json
+{
+  "eventId": "...",
+  "eventType": "consulta.concluida",
+  "timestamp": "...",
+  "data": {
+    "consulta_id": "ObjectId-da-consulta",
+    "fisioterapeuta_id": "ObjectId-do-fisio-assinante",
+    "paciente_id": "ObjectId-do-paciente"
+  }
+}
+```
+
+**Integração:** `backend/controllers/consultaController.js` → `atualizarNotaClinica` (depois de `consulta.save()` + `registarAuditoria`, se `estado === 'concluida'`; fire-and-forget, sem `await`). O Autocell usa este evento para saber que uma nota clínica foi submetida e assinada com cédula (para métricas, faturação, orquestração, etc.).
+
+#### `alerta.consultas_pendentes`
+
+Disparado no final do Cão de Guarda Consultas (`jobs/caoGuardaConsultas.js`), quando existem consultas problemáticas (órfãs — sem fisio ativo — ou esquecidas — datas passadas não concluídas). Os IDs são agrupados num único webhook agregado (não um por consulta).
+
+```json
+{
+  "eventId": "...",
+  "eventType": "alerta.consultas_pendentes",
+  "timestamp": "...",
+  "data": {
+    "consultas_ids": ["ObjectId-1", "ObjectId-2", "..."],
+    "data_alvo": "2025-01-31T00:00:00.000Z"
+  }
+}
+```
+
+**Integração:** `backend/jobs/caoGuardaConsultas.js` → `executarCaoGuardaConsultas` (no final, depois de notificar os diretores; fire-and-forget). `data_alvo` é o início do dia atual em UTC (meia-noite). Só dispara se houver pelo menos uma consulta problemática — não envia webhooks vazios.
+
+### Padrão fire-and-forget
+
+A função `enviarEventoParaAutocell()` é `async` mas os callers **não devem aguardar** (`await`) — o evento é disparado em background e não bloqueia o fluxo principal. Erros de rede (Autocell indisponível, timeout, etc.) são apanhados e loggados como warning, nunca lançados. Isto garante que uma falha no Autocell nunca prejudica a operação do FisioFernandes (nem a submissão de uma nota SOAP, nem o encerramento do Cão de Guarda).
+
+---
+
 ## 4. Scripts disponíveis
 
 | Script       | Comando            | Descrição                                          |
@@ -598,6 +700,12 @@ Definidas no ficheiro `.env` (a criar a partir de `.env.example`). **Nunca** faz
 | `PORT`          | ❌ Não        | Porta de escuta. Por defeito `5000`. No Render é injetada.       |
 | `JWT_SECRET`    | ✅ Sim (prod)| Segredo para assinar/verificar JWT. Em dev tem fallback. **Gerar valor aleatório longo em produção.** |
 | `JWT_EXPIRACAO` | ❌ Não        | Tempo de expiração do JWT (formato jsonwebtoken: `7d`, `12h`). Default `7d`. |
+| `FRONTEND_URL`  | ❌ Não        | Origem permitida para CORS (URL do frontend Vercel). Default `http://localhost:3000`. |
+| `AUTOCELL_SSO_SECRET` | ❌ Não | Segredo partilhado com o Autocell para SSO (ver §6.2). Se vazio, SSO desativado. |
+| `AUTOCELL_WEBHOOK_URL` | ❌ Não | URL de destino no Autocell para webhooks outbound (ver §3.6). Se vazio (com `AUTOCELL_WEBHOOK_SECRET`), webhooks em modo dev (console.log). |
+| `AUTOCELL_WEBHOOK_SECRET` | ❌ Não | Segredo partilhado para assinatura HMAC-SHA256 dos webhooks outbound (ver §3.6). Tem de ser idêntico no Autocell. |
+| `GEMINI_API_KEY` | ❌ Não       | Chave do Google Gemini para o Resumo Executivo com IA (best-effort). |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | ❌ Não | Chaves VAPID para notificações push (Web Push API). Se ausentes, push é ignorado silenciosamente. |
 
 ---
 
@@ -609,7 +717,7 @@ Rota de verificação de estado (healthcheck).
 **Resposta (200 OK):**
 ```json
 {
-  "status": "API do FisioCell online e ligada à BD!"
+  "status": "API do FisioFernandes online e ligada à BD!"
 }
 ```
 
@@ -658,7 +766,7 @@ Lista todos os utilizadores da empresa (qualquer role), ordenados por `nome`.
 ```json
 {
   "utilizadores": [
-    { "_id": "...", "nome": "João Fisioterapeuta", "email": "joao.fisio@fisiocell.pt", "empresa_id": "...", "role": "fisioterapeuta", "ativo": true, "createdAt": "...", "updatedAt": "..." }
+    { "_id": "...", "nome": "João Fisioterapeuta", "email": "joao.fisio@fisiofernandes.pt", "empresa_id": "...", "role": "fisioterapeuta", "ativo": true, "createdAt": "...", "updatedAt": "..." }
   ]
 }
 ```
@@ -673,7 +781,7 @@ Cria um novo membro de equipa (Utilizador) para a empresa.
 ```json
 {
   "nome": "Maria Ferreira",
-  "email": "maria.ferreira@fisiocell.pt",
+  "email": "maria.ferreira@fisiofernandes.pt",
   "password": "segredo123",
   "role": "fisioterapeuta"
 }
@@ -723,32 +831,32 @@ Remove permanentemente o utilizador da base de dados.
 #### `GET /api/admin/setup`  *(PÚBLICO — sem auth)*
 **Bootstrap do “Cliente Zero”** — cria dados iniciais para testes (idempotente):
 
-- 1 **Empresa** «Clínica FisioCell Teste» (procura por `nome`).
+- 1 **Empresa** «Clínica FisioFernandes Teste» (procura por `nome`).
 - 3 **Utilizadores** (procura por `email` único), cada um com `password_hash` bcrypt:
-  - `admin@fisiocell.pt` (admin — Super Admin da plataforma)
-  - `gestor@fisiocell.pt` (diretor_clinico — acesso total à clínica)
-  - `joao.fisio@fisiocell.pt` (fisioterapeuta — vê só os seus pacientes/consultas)
+  - `admin@fisiofernandes.pt` (admin — Super Admin da plataforma)
+  - `gestor@fisiofernandes.pt` (diretor_clinico — acesso total à clínica)
+  - `joao.fisio@fisiofernandes.pt` (fisioterapeuta — vê só os seus pacientes/consultas)
 - 1 **Propriedade** «Casa Teste».
 
-> **F1:** O `setupClienteZero` foi atualizado para os novos roles (`admin`/`diretor_clinico`/`fisioterapeuta`). O email `gestor@fisiocell.pt` é mantido por compatibilidade (a string do email não muda; só a role).
+> **F1:** O `setupClienteZero` foi atualizado para os novos roles (`admin`/`diretor_clinico`/`fisioterapeuta`). O email `gestor@fisiofernandes.pt` é mantido por compatibilidade (a string do email não muda; só a role).
 
 - **Resposta (200 OK):**
 ```json
 {
   "mensagem": "Cliente Zero criado com sucesso.",
   "empresa_id": "<ObjectId>",
-  "empresa":  { "id": "...", "nome": "Clínica FisioCell Teste", "plano_ativo": true, "criada": true },
+  "empresa":  { "id": "...", "nome": "Clínica FisioFernandes Teste", "plano_ativo": true, "criada": true },
   "utilizadores": [
-    { "id": "...", "nome": "Diretor FisioCell", "email": "admin@fisiocell.pt", "role": "admin", "criado": true, "password_definida": true, "credenciais_teste": { "email": "admin@fisiocell.pt", "password": "fisiocell123" } },
-    { "id": "...", "nome": "Responsável Clínico", "email": "gestor@fisiocell.pt", "role": "diretor_clinico", "criado": true, "password_definida": true, "credenciais_teste": { "email": "gestor@fisiocell.pt", "password": "fisiocell123" } },
-    { "id": "...", "nome": "João Fisioterapeuta", "email": "joao.fisio@fisiocell.pt", "role": "fisioterapeuta", "criado": true, "password_definida": true, "credenciais_teste": { "email": "joao.fisio@fisiocell.pt", "password": "fisiocell123" } }
+    { "id": "...", "nome": "Diretor FisioFernandes", "email": "admin@fisiofernandes.pt", "role": "admin", "criado": true, "password_definida": true, "credenciais_teste": { "email": "admin@fisiofernandes.pt", "password": "fisiofernandes123" } },
+    { "id": "...", "nome": "Responsável Clínico", "email": "gestor@fisiofernandes.pt", "role": "diretor_clinico", "criado": true, "password_definida": true, "credenciais_teste": { "email": "gestor@fisiofernandes.pt", "password": "fisiofernandes123" } },
+    { "id": "...", "nome": "João Fisioterapeuta", "email": "joao.fisio@fisiofernandes.pt", "role": "fisioterapeuta", "criado": true, "password_definida": true, "credenciais_teste": { "email": "joao.fisio@fisiofernandes.pt", "password": "fisiofernandes123" } }
   ],
   "propriedade": { "id": "...", "nome": "Casa Teste", "criada": true }
 }
 ```
 - Se já existir tudo, devolve `mensagem: "Cliente Zero já existia (nada foi alterado)."` com `criada/criado: false`.
 - **Retrocompatibilidade:** se um utilizador já existir sem `password_hash` (criado antes do auth), o setup define-lhe a password e garante o role correto.
-- **Credenciais de teste (3 contas):** `admin@fisiocell.pt` (admin), `gestor@fisiocell.pt` (diretor_clinico), `joao.fisio@fisiocell.pt` (fisioterapeuta) — todas com password `fisiocell123` (remover em produção).
+- **Credenciais de teste (3 contas):** `admin@fisiofernandes.pt` (admin), `gestor@fisiofernandes.pt` (diretor_clinico), `joao.fisio@fisiofernandes.pt` (fisioterapeuta) — todas com password `fisiofernandes123` (remover em produção).
 
 ### 6.2. Autenticação (`/api/auth`)
 
@@ -757,7 +865,7 @@ Login com email + password. Valida a hash bcrypt e devolve um JWT.
 
 - **Body:**
 ```json
-{ "email": "joao.fisio@fisiocell.pt", "password": "fisiocell123" }
+{ "email": "joao.fisio@fisiofernandes.pt", "password": "fisiofernandes123" }
 ```
 - **Resposta (200 OK):**
 ```json
@@ -766,7 +874,7 @@ Login com email + password. Valida a hash bcrypt e devolve um JWT.
   "utilizador": {
     "id": "...",
     "nome": "João Fisioterapeuta",
-    "email": "joao.fisio@fisiocell.pt",
+    "email": "joao.fisio@fisiofernandes.pt",
     "role": "fisioterapeuta",
     "empresa_id": "..."
   }
@@ -775,6 +883,77 @@ Login com email + password. Valida a hash bcrypt e devolve um JWT.
 - **JWT payload:** `{ id, role, empresa_id }` assinado com `JWT_SECRET`, expira em `JWT_EXPIRACAO` (default `7d`).
 - **Erros:** `400` email/password em falta; `401` credenciais inválidas / utilizador inativo / sem password definida; `429` muitas tentativas de login (rate limit); `500` erro interno.
 - **Rate limiting (v1.11.0):** a rota de login está protegida por `express-rate-limit` — máximo de **5 tentativas por IP a cada 15 minutos**. Ultrapassado o limite → `429` com `{ "erro": "Muitas tentativas de login. Tente novamente mais tarde." }`. Mitiga ataques de força bruta e credential stuffing. Headers `RateLimit-*` (standard) são enviados na resposta para o cliente saber quando pode tentar novamente.
+
+#### `GET /api/auth/sso` (público — Single Sign-On com o Autocell)
+Inicia a sessão de um administrador no FisioFernandes a partir do portal central **Autocell**, sem re-pedir credenciais (Single Sign-On).
+
+- **Query params:**
+  - `token` — JWT externo assinado pelo Autocell com `AUTOCELL_SSO_SECRET`.
+  - `json` — se `"true"` (OU header `Accept: application/json`), ativa o **modo JSON**: o endpoint devolve `{ sucesso: true, token: <jwt_interno> }` em vez de setar cookies + redirecionar. Usado pela proxy route do Next.js para definir cookies no domínio do frontend (ver abaixo).
+- **Payload esperado no JWT externo:** `{ email: "admin@fisiofernandes.pt" }` (também aceita `sub` como convenção JWT).
+- **Variável de ambiente:** `AUTOCELL_SSO_SECRET` — segredo partilhado com o Autocell. Tem de ser **idêntico** nos dois sistemas. Se vazio, o SSO fica desativado (todos os pedidos falham).
+
+##### Dois modos de funcionamento
+
+O endpoint suporta dois modos, consoante quem chama:
+
+**1. Modo REDIRECT (padrão, retrocompatível)** — acesso direto pelo browser:
+```
+GET /api/auth/sso?token=<jwt_externo>
+```
+Valida o token, define cookies httpOnly no backend e faz `res.redirect(302)` para `FRONTEND_URL/admin` (ou `/login?erro=sso_falhou` em caso de erro).
+⚠️ **Só funciona se backend e frontend partilharem o mesmo domínio registável** — em deploys cross-domain (Render + Vercel), os cookies definidos pelo backend não são guardados pelo browser para o domínio do frontend.
+
+**2. Modo JSON (para proxy do Next.js — recomendado para produção cross-domain):**
+```
+GET /api/auth/sso?token=<jwt_externo>&json=true
+# ou:
+GET /api/auth/sso?token=<jwt_externo>   com header: Accept: application/json
+```
+Valida o token e devolve JSON **sem** definir cookies nem redirecionar:
+- **Sucesso (200):** `{ "sucesso": true, "token": "<jwt_interno>" }`
+- **Falha (401):** `{ "sucesso": false, "erro": "sso_falhou" }`
+
+A proxy route do Next.js (`frontend/src/app/api/auth/sso/route.ts`) usa este modo: recebe o JSON, define os cookies no **domínio do frontend** (que o browser aceita) e faz o redirect final para `/admin`.
+
+##### Fluxo completo (modo JSON, recomendado para produção)
+
+```
+┌──────────┐  redirect browser  ┌─────────────────────────┐  fetch ?json=true   ┌──────────────┐
+│ Autocell │ ─────────────────► │ Next.js proxy route     │ ──────────────────► │ Backend SSO  │
+│ (portal) │                    │ /api/auth/sso           │                     │ /api/auth/sso│
+└──────────┘                    │ (domínio do frontend)   │ ◄────── JSON ────── │ (Render)     │
+                                └─────────────────────────┘ {sucesso, token}   └──────────────┘
+                                          │
+                                          │ set cookies httpOnly (domínio frontend)
+                                          │ + redirect /admin
+                                          ▼
+                                ┌─────────────────────────┐
+                                │ Browser (sessão ativa)  │
+                                └─────────────────────────┘
+```
+
+1. O Autocell gera o JWT externo com `AUTOCELL_SSO_SECRET` e redireciona o browser para `https://fisiofernandes.vercel.app/api/auth/sso?token=<jwt_externo>`.
+2. A proxy route do Next.js (no domínio do frontend) faz `fetch` ao backend em modo JSON: `GET https://fisiofernandes-backend.../api/auth/sso?token=...&json=true`.
+3. O backend valida o JWT externo, procura o admin por `email` + `role: 'admin'`, gera o JWT interno e devolve `{ sucesso: true, token }`.
+4. A proxy route define os cookies httpOnly `fisiofernandes_token` + `fisiofernandes_admin_token` no domínio do frontend (`sameSite: 'lax'`, `secure` em produção, `maxAge: 7d`) e redireciona para `/admin`.
+
+##### Segurança
+
+- O JWT externo é validado com um segredo **diferente** do `JWT_SECRET` interno — isola a confiança (comprometimento do segredo SSO não expõe os tokens internos).
+- Apenas `role: 'admin'` é aceite via SSO (o Autocell é um portal de orquestração central).
+- `sameSite: 'lax'` é obrigatório para que o cookie viaje no redirect top-level do SSO (Autocell → frontend).
+- `httpOnly: true` — o JS do browser não consegue ler o token (anti-XSS).
+- No modo JSON, o token interno só transita pela rede servidor-a-servidor (proxy Next.js → backend), nunca exposto ao browser.
+
+##### Erros
+
+- **Modo REDIRECT:** todos os erros redirecionam para `FRONTEND_URL/login?erro=sso_falhou`.
+- **Modo JSON:** todos os erros devolvem `401 { sucesso: false, erro: "sso_falhou" }` (a proxy route converte isto num redirect para `/login?erro=sso_falhou`).
+
+Casos de erro: token em falta; `AUTOCELL_SSO_SECRET` não configurado; token inválido/expirado; payload sem `email`/`sub`; admin não encontrado ou inativo.
+
+> **Arquitetura cross-domain (Render + Vercel):** o backend (Render) e o frontend (Vercel) estão em domínios diferentes. Cookies `httpOnly` definidos pelo backend não são guardados pelo browser para o domínio do frontend. A proxy route do Next.js (`frontend/src/app/api/auth/sso/route.ts`) resolve isto: corre no MESMO domínio do frontend, pede o token ao backend em modo JSON, e define os cookies localmente. Esta é a solução recomendada para produção; o modo REDIRECT fica apenas para ambientes same-domain ou desenvolvimento local.
 
 #### `GET /api/auth/me` (requer JWT)
 Devolve os dados do utilizador autenticado (a partir do token).
@@ -1075,7 +1254,7 @@ Lista horários de fisioterapeutas da empresa.
     {
       "_id": "...",
       "empresa_id": "...",
-      "fisioterapeuta_id": { "_id": "...", "nome": "João Fisioterapeuta", "email": "joao.fisio@fisiocell.pt", "role": "fisioterapeuta" },
+      "fisioterapeuta_id": { "_id": "...", "nome": "João Fisioterapeuta", "email": "joao.fisio@fisiofernandes.pt", "role": "fisioterapeuta" },
       "tipo": "recorrente",
       "dia_semana": 1,
       "hora_inicio": "09:00",
@@ -1598,13 +1777,13 @@ Carrega um ficheiro (multipart/form-data) e cria o registo do documento.
 | **F4**     | —      | **Consultas + validação de conflitos + cédula profissional:** (1) Novo modelo `models/Consulta.js` — `empresa_id`, `sala_id` (`ref: 'Propriedade'` alias Sala até F8), `fisioterapeuta_id` (`ref: 'Utilizador'`), `paciente_id` (`ref: 'Paciente'`), `data_hora_inicio`/`data_hora_fim` (Date), `duracao_minutos` (default `45`, `min: 15`), `tipo` (`enum ['primeira_consulta','sessao','reavaliacao','alta','grupo']` default `'sessao'`), `estado` (`enum ['marcada','confirmada','em_curso','concluida','cancelada','faltou','nao_compareceu']` default `'marcada'`), `motivo_cancelamento` (`enum ['paciente','clinica','fisio','outro']`), `presenca` (`enum ['pendente','presente','ausente','atrasado']`), `nota_clinica` (`{subjetivo, objetivo, avaliacao, plano, tratamento_efetuado, protocolo_aplicado[], cedula_assinante}` — imutável após `estado='concluida'`), `criada_por`, `concluida_em`, `cancelada_em`, `cancelada_por`, `lembrete_24h_enviado`, `lembrete_2h_enviado`, `observacoes`. Índices compostos `{empresa_id, fisioterapeuta_id, data_hora_inicio}`, `{empresa_id, sala_id, data_hora_inicio}`, `{empresa_id, paciente_id, data_hora_inicio (-1)}`, `{estado, data_hora_inicio}`. (2) `models/Utilizador.js` — adicionado método de instância `temCedulaValida()` (devolve `true` para admin/rececionista; para fisio/diretor_clinico exige `perfil_profissional.cedula` preenchido). (3) Novo `controllers/consultaController.js` — função interna `validarConflitos` (4 verificações em simultâneo: fisio disponível via motor F3 + sala sem sobreposição + fisio sem sobreposição + paciente sem sobreposição, devolve `{ok, warnings, horario}`); 7 funções exportadas (`listarConsultas` com filtros fisioterapeuta_id/sala_id/paciente_id/estado/inicio/fim + fisio vê só as suas, `obterConsulta`, `criarConsulta` com `forcar` para soft block 409/200, `atualizarConsulta` com re-validação temporal + `excluirConsultaId`, `atualizarNotaClinica` endpoint separado com `isClinico` + validação de cédula + snapshot de `cedula_assinante`, `eliminarConsulta` bloqueia concluídas RGPD, `validarConflitosEndpoint` GET para o frontend validar em tempo real); auditoria registada (`recurso: 'consulta'`). (4) Novas `routes/consultaRoutes.js` montadas em `/api/gestor/consultas` — middleware custom `podeVer` (4 roles) para GET/listar/validar/detalhe, `isRececionista` para POST/PUT, `isClinico` para `PATCH /:id/nota-clinica`, `isDiretorClinico` para DELETE. (5) `server.js` — mount `app.use('/api/gestor/consultas', consultaRoutes)`. 176/176 testes ✓ (+25 testes de Consulta: CRUD, validação de conflitos fisio/sala/paciente, soft block com `forcar`, nota clínica SOAP com cédula, imutabilidade de concluídas, RGPD no delete). |
 | **F3**     | —      | **Horários de Fisioterapeuta + motor de disponibilidade:** (1) Novo modelo `models/HorarioFisioterapeuta.js` — `empresa_id`, `fisioterapeuta_id`, `tipo` (`enum ['recorrente','excecao']` default `'recorrente'`), `dia_semana` (0-6, `null` se `excecao`), `hora_inicio`/`hora_fim` (formato `HH:mm` validado por regex), `data` (Date, `null` se `recorrente`), `disponivel` (boolean default `true` — para `excecao`), `ativo` (boolean default `true` indexado — soft toggle), `nota` (string). Validação `pre('validate')`: `recorrente` exige `dia_semana` e força `data=null`; `excecao` exige `data` e força `dia_semana=null`. Índices compostos `{fisioterapeuta_id, dia_semana, ativo}`, `{empresa_id, fisioterapeuta_id, tipo}`, `{fisioterapeuta_id, data}`. (2) `utils/disponibilidade.js` expandido — adicionadas `horaLisboa(instante)` (devolve `HH:mm` no fuso de Lisboa via `Intl.DateTimeFormat`), `compararHoras(a, b)` (compara `HH:mm` em minutos), `obterHorarioDia(fisioId, data)` (3 sub-camadas: exceção do dia → regra recorrente → sem horário), `verificarConflitoHorario(fisioId, dataHoraInicio, duracaoMin)` (valida se a consulta cabe no bloco de trabalho), `verificarDisponibilidadeCompleta(utilizador, dataHoraInicio, duracaoMin)` (ausência aprovada → folga fixa semanal → horário de trabalho, com falha cedo). (3) Novo `controllers/horarioController.js` — CRUD completo (`listarHorarios`, `obterHorario`, `criarHorario`, `atualizarHorario`, `eliminarHorario` hard delete, `verificarDisponibilidade`); valida `fisioterapeuta_id` como fisio/diretor_clinico ativo da empresa; fisioterapeuta vê só os seus; auditoria registada. (4) Novas `routes/horarioRoutes.js` montadas em `/api/gestor/horarios` — middleware custom `podeVer` (4 roles) para GET/listar/disponibilidade, `isDiretorClinico` para POST/PUT/DELETE. (5) `server.js` — mount `app.use('/api/gestor/horarios', horarioRoutes)`. 151/151 testes ✓ (+21 testes de Horário: CRUD, permissões, motor de disponibilidade com exceções, conflitos de horário, dia sem regra). |
 | **F2**     | —      | **Pacientes (Fisioterapia):** (1) Novo modelo `models/Paciente.js` — `empresa_id`, `nome`, `data_nascimento`, `genero` (`enum ['M','F','Outro','NA']` default `'NA'`), `num_utente` (SNS), `nif`, `telefone` (obrigatório), `email`, `morada`, `contacto_emergencia` (`{nome, telefone, relacao}`), `historico_medico`, `alergias` (`[String]`), `consentimento_dados` (`{concedido, data, versao_termos}`), `ativo`, `eliminado_em` (soft delete), `observacoes`, `origem` (`enum ['walk_in','referenciacao','online','outro']` default `'walk_in'`). Índices compostos `{empresa_id, nome}`, `{empresa_id, num_utente}`, `{empresa_id, ativo, eliminado_em}`. (2) Novo `controllers/pacienteController.js` — CRUD completo (`listarPacientes`, `obterPaciente`, `criarPaciente`, `atualizarPaciente`, `eliminarPaciente` soft delete, `alternarEstadoPaciente`) + helpers `temAcessoClinico` e `sanitizarParaNaoClinico` (remove `historico_medico`/`alergias`/`contacto_emergencia` para rececionistas) + auditoria via `utils/auditoria.js`. (3) Novas `routes/pacienteRoutes.js` montadas em `/api/gestor/pacientes` — middleware custom `podeVer` (4 roles) para GET/POST/PUT, `isRececionista` para `PATCH /:id/estado`, `isDiretorClinico` para `DELETE /:id` (soft delete). (4) `server.js` — mount `app.use('/api/gestor/pacientes', pacienteRoutes)`. Respostas incluem flag `dados_clinicos: boolean`. 130/130 testes ✓ (+19 testes de Paciente). |
-| **F1**     | —      | **Migração de roles (Fisioterapia):** (1) Modelo `Utilizador` — enum migrado de `['admin','manager','staff']` para `['admin','diretor_clinico','fisioterapeuta','rececionista']` (default `'rececionista'`); adicionado bloco `perfil_profissional` (`cedula`, `especialidades`, `biografia`, `cor_calendario` default `'#3b82f6'`, `ativo_clinico` default `true`). (2) Modelo `Empresa` — adicionado `logo_url` e bloco `config` (`horario_padrao`, `duracao_consulta_padrao` default `45`/min `15`, `tolerancia_atraso_min` default `10`, `fuso_horario` default `'Europe/Lisbon'`). (3) `middleware/requireRole.js` — removidos `isGestor`/`requireStaff`/`requireManager`/`requireAdmin` (legacy); adicionados `isAdmin` (só admin), `isDiretorClinico` (admin+diretor_clinico), `isClinico` (admin+diretor_clinico+fisioterapeuta), `isRececionista` (admin+diretor_clinico+rececionista). (4) `utils/loadBalancer.js` + controllers — queries de role: `'staff'` → `'fisioterapeuta'`; `'gestor'` → `'diretor_clinico'`; `['staff','gestor']` → `['fisioterapeuta','diretor_clinico']`; `isGestor` → `isDiretorClinico` em todas as routes (`gestorRoutes.js`, `ausenciaRoutes.js`). (5) `setupClienteZero` atualizado: 3 utilizadores (`admin@fisiocell.pt` admin, `gestor@fisiocell.pt` diretor_clinico, `joao.fisio@fisiocell.pt` fisioterapeuta). 111/111 testes ✓. |
+| **F1**     | —      | **Migração de roles (Fisioterapia):** (1) Modelo `Utilizador` — enum migrado de `['admin','manager','staff']` para `['admin','diretor_clinico','fisioterapeuta','rececionista']` (default `'rececionista'`); adicionado bloco `perfil_profissional` (`cedula`, `especialidades`, `biografia`, `cor_calendario` default `'#3b82f6'`, `ativo_clinico` default `true`). (2) Modelo `Empresa` — adicionado `logo_url` e bloco `config` (`horario_padrao`, `duracao_consulta_padrao` default `45`/min `15`, `tolerancia_atraso_min` default `10`, `fuso_horario` default `'Europe/Lisbon'`). (3) `middleware/requireRole.js` — removidos `isGestor`/`requireStaff`/`requireManager`/`requireAdmin` (legacy); adicionados `isAdmin` (só admin), `isDiretorClinico` (admin+diretor_clinico), `isClinico` (admin+diretor_clinico+fisioterapeuta), `isRececionista` (admin+diretor_clinico+rececionista). (4) `utils/loadBalancer.js` + controllers — queries de role: `'staff'` → `'fisioterapeuta'`; `'gestor'` → `'diretor_clinico'`; `['staff','gestor']` → `['fisioterapeuta','diretor_clinico']`; `isGestor` → `isDiretorClinico` em todas as routes (`gestorRoutes.js`, `ausenciaRoutes.js`). (5) `setupClienteZero` atualizado: 3 utilizadores (`admin@fisiofernandes.pt` admin, `gestor@fisiofernandes.pt` diretor_clinico, `joao.fisio@fisiofernandes.pt` fisioterapeuta). 111/111 testes ✓. |
 | Inicial    | 1.0.0  | Criação da estrutura base: `package.json`, `server.js`, `.env.example`, `.gitignore`. Ligação ao MongoDB e rota de teste `GET /`. |
 | v1.1.0     | 1.1.0  | Lógica central: modelos `Propriedade`, `Utilizador`, `Ausencia`, `Tarefa`; `controllers/webhookController.js` (fluxo estrito de atribuição com filtro de ausências + load balancing); `routes/webhookRoutes.js` (`POST /webhooks/smoobu`); resposta 200 imediata + processamento assíncrono; tratamento de erros robusto. |
 | v1.2.0     | 1.2.0  | Painel de Administração: modelo `Empresa` (nome, nif, plano_ativo); `controllers/adminController.js` (`getPropriedades`, `criarPropriedade`, `setupClienteZero`); `routes/adminRoutes.js` (`GET/POST /api/admin/propriedades`, `GET /api/admin/setup`); montagem em `server.js`. `empresa_id` via header `x-empresa-id` (sem JWT ainda). |
-| v1.3.0     | 1.3.0  | **Autenticação JWT:** dependências `jsonwebtoken` + `bcryptjs`; modelo `Utilizador` com `email` único + `password_hash`; `middleware/auth.js` (verifica JWT, injeta `req.user`, fallback legacy `x-empresa-id`); `controllers/authController.js` (`login` com bcrypt + JWT, `/me`); `routes/authRoutes.js` (`POST /api/auth/login`, `GET /api/auth/me`); `/api/admin` protegido por `auth` com `empresa_id` do token; `setupClienteZero` cria Staff com `password_hash` (`joao.limpezas@fisiocell.pt` / `fisiocell123`); `.env.example` com `JWT_SECRET` + `JWT_EXPIRACAO`. |
+| v1.3.0     | 1.3.0  | **Autenticação JWT:** dependências `jsonwebtoken` + `bcryptjs`; modelo `Utilizador` com `email` único + `password_hash`; `middleware/auth.js` (verifica JWT, injeta `req.user`, fallback legacy `x-empresa-id`); `controllers/authController.js` (`login` com bcrypt + JWT, `/me`); `routes/authRoutes.js` (`POST /api/auth/login`, `GET /api/auth/me`); `/api/admin` protegido por `auth` com `empresa_id` do token; `setupClienteZero` cria Staff com `password_hash` (`joao.limpezas@fisiofernandes.pt` / `fisiofernandes123`); `.env.example` com `JWT_SECRET` + `JWT_EXPIRACAO`. |
 | v1.3.1     | 1.3.1  | **Fix bootstrap:** o `auth` deixou de ser aplicado a todo `/api/admin` e passou a ser aplicado apenas às rotas `/propriedades` (dentro de `adminRoutes.js`). A rota `/api/admin/setup` voltou a ser **PÚBLICA** (era o endpoint de bootstrap que criava o primeiro utilizador — não podia exigir token). Corrige o erro `401 Autenticação obrigatória` ao chamar `/setup`. |
-| v1.4.0     | 1.4.0  | **Novo role `manager`:** modelo `Utilizador` enum `['admin','manager','staff']`; `webhookController` inclui managers na atribuição de tarefas (load balancing); `setupClienteZero` cria 3 utilizadores (admin `admin@fisiocell.pt` + manager `manager@fisiocell.pt` + staff `joao.limpezas@fisiocell.pt`, todos com password `fisiocell123`). |
+| v1.4.0     | 1.4.0  | **Novo role `manager`:** modelo `Utilizador` enum `['admin','manager','staff']`; `webhookController` inclui managers na atribuição de tarefas (load balancing); `setupClienteZero` cria 3 utilizadores (admin `admin@fisiofernandes.pt` + manager `manager@fisiofernandes.pt` + staff `joao.limpezas@fisiofernandes.pt`, todos com password `fisiofernandes123`). |
 | v1.4.1     | 1.4.1  | **Payload Smoobu oficial:** `extrairDadosReserva` atualizada para a estrutura documentada (`{ action, data: { id, arrival, apartment: { id, name } } }`). Mapeamento primário: `payload.data.apartment.id`, `payload.data.arrival`, `payload.data.id`. Fallbacks `??` mantidos para variantes (`content.*`, campos achatados). |
 | v1.5.0     | 1.5.0  | **Gestão de Equipa:** `adminController` com `getEquipa` (lista utilizadores, `.select('-password_hash')`) e `criarMembroEquipa` (valida nome/email/password/role, hash bcrypt, email único); `adminRoutes` com `GET/POST /api/admin/equipa` (protegidos por `auth`). |
 | v1.6.0     | 1.6.0  | **CRUD completo de Utilizadores:** `adminController` com `atualizarMembroEquipa` (PUT — nome/email/role/password opcional com nova hash bcrypt), `alternarEstadoMembro` (PATCH — ativa/desativa, inativos não fazem login), `eliminarMembroEquipa` (DELETE — não permite auto-eliminação); `adminRoutes` com `PUT/PATCH/DELETE /api/admin/equipa/:id` (protegidos por `auth`). Validação de pertença à empresa em todas as operações. |

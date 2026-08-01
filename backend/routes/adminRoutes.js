@@ -1,5 +1,5 @@
 /**
- * Rotas do Super Admin — FisioCell
+ * Rotas do Super Admin — FisioFernandes
  *
  * Prefixo montado em server.js: /api/admin
  *

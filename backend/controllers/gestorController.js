@@ -1,5 +1,5 @@
 /**
- * Admin Controller — FisioCell
+ * Admin Controller — FisioFernandes
  *
  * Endpoints do Painel de Administração.
  *
@@ -1051,7 +1051,7 @@ exports.getAuditoria = async (req, res) => {
  * GET /api/gestor/setup
  *
  * Cria o "Cliente Zero" — dados iniciais para testes:
- *   - 1 Empresa: "Clínica FisioCell Teste"
+ *   - 1 Empresa: "Clínica FisioFernandes Teste"
  *   - 1 Utilizador Staff: "João Fisioterapeuta"
  *   - 1 Propriedade/Sala: "Sala Teste"
  *
@@ -1064,26 +1064,26 @@ exports.getAuditoria = async (req, res) => {
  */
 exports.setupClienteZero = async (req, res) => {
   try {
-    const NOME_EMPRESA = 'Clínica FisioCell Teste';
+    const NOME_EMPRESA = 'Clínica FisioFernandes Teste';
     const NOME_PROPRIEDADE = 'Sala Teste';
-    const PASSWORD_TESTE = 'fisiocell123';
+    const PASSWORD_TESTE = 'fisiofernandes123';
 
     // Utilizadores a garantir (admin + gestor + staff).
     // F0 — renomeado para o novo domínio (Fisioterapia).
     const UTILIZADORES_TESTE = [
       {
-        nome: 'Diretor FisioCell', // admin — para ti (dono da conta)
-        email: 'admin@fisiocell.pt',
+        nome: 'Diretor FisioFernandes', // admin — para ti (dono da conta)
+        email: 'admin@fisiofernandes.pt',
         role: 'admin',
       },
       {
         nome: 'Responsável Clínico', // gestor — gere a equipa
-        email: 'gestor@fisiocell.pt',
+        email: 'gestor@fisiofernandes.pt',
         role: 'diretor_clinico',
       },
       {
         nome: 'João Fisioterapeuta', // staff — executante
-        email: 'joao.fisio@fisiocell.pt',
+        email: 'joao.fisio@fisiofernandes.pt',
         role: 'fisioterapeuta',
       },
     ];

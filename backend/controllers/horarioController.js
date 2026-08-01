@@ -1,5 +1,5 @@
 /**
- * Horário Controller — FisioCell
+ * Horário Controller — FisioFernandes
  *
  * F3 — CRUD de HorarioFisioterapeuta (limites de agenda).
  *

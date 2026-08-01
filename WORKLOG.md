@@ -1897,3 +1897,381 @@ Stage Summary:
 - **Soft delete** preserva metadados para auditoria.
 - **130/130 testes ✓** + **lint ✓** + **tsc ✓** + **build ✓**.
 - **MIGRAÇÃO F0-F9 COMPLETA** 🏁 — todas as 10 fases concluídas.
+
+---
+
+Task ID: DT1
+Agent: Z.ai Code
+Task: Resolução de dívida técnica crítica (Fase 1) — corrigir os 4 problemas críticos identificados na auditoria pós-migração F0-F9: (1) segurança RGPD (uploads/ tracked no git + .gitignore em falta), (2) conflito de compilação (detalhes-reserva-card duplicado), (3) schema da BD (Notificacao.tarefa_id dangling), (4) README desatualizado.
+
+Work Log:
+
+### DT1-A — Segurança e RGPD (.gitignore + uploads/)
+- **Problema**: 8 ficheiros de teste (PDFs, JPGs) committed em `uploads/` — potencial RGPD (documentos clínicos de teste). Não existia `.gitignore` na raiz do repo (só em `backend/` e `frontend/`), pelo que a entrada `uploads/` do `backend/.gitignore` não cobria a pasta `uploads/` da raiz.
+- **Correção**:
+  - Criado `.gitignore` na raiz do repo cobrindo: `node_modules/`, `.env*`, `.next/`, `build/`, `uploads/*` (com `!uploads/.gitkeep`), logs, OS, IDE.
+  - Criado `uploads/.gitkeep` (placeholder para manter a pasta no repo).
+  - `git rm -r --cached uploads/` removeu os 8 ficheiros de teste do index (ficheiros mantidos localmente — não perdidos).
+  - Confirmado: `git ls-files uploads/` devolve apenas `.gitkeep`.
+
+### DT1-B — Conflito de compilação (detalhes-reserva-card)
+- **Problema**: 2 ficheiros stub duplicados — `detalhes-reserva-card.tsx` e `detalhes-reserva-card.jsx` — ambos a exportar `DetalhesReservaCard` (stubs que devolvem `null`). Legacy do domínio Alojamento Local (mostravam check-in/check-out/pax/nome_hóspede). Importados por `detalhe-tarefa-modal.tsx` (gestor) e `detalhe-tarefa-client.tsx` (staff). Risco de conflito de resolução de módulos no Next.js.
+- **Correção**:
+  - Apagados `frontend/src/components/detalhes-reserva-card.tsx` e `detalhes-reserva-card.jsx`.
+  - Removido o import `import { DetalhesReservaCard } from "@/components/detalhes-reserva-card";` em ambos os callers.
+  - Removida a linha `<DetalhesReservaCard detalhes={tarefa.detalhes_reserva} />` em ambos os callers (era `return null`, pelo que remover não altera o UI).
+  - Confirmado: zero referências a `DetalhesReservaCard`/`detalhes-reserva-card` no código frontend (apenas em docs/WORKLOG como histórico).
+
+### DT1-C — Schema da BD (Notificacao.tarefa_id → consulta_id)
+- **Problema**: `backend/models/Notificacao.js` tinha `tarefa_id: { ref: 'Tarefa' }` — mas o modelo `Tarefa` foi REMOVIDO em F8. Um `populate('tarefa_id')` falharia silenciosamente (devolve `null`). O enum `tipo` ainda tinha `'tarefa_atribuida'`/`'tarefa_reatribuida'`/`'tarefa_cancelada'`.
+- **Correção** (`backend/models/Notificacao.js`):
+  - Campo `tarefa_id` → `consulta_id` (mantém `ObjectId`, `default: null`, `index: true`).
+  - `ref: 'Tarefa'` → `ref: 'Consulta'` (alinhado com F4).
+  - Enum `tipo`: `'tarefa_atribuida'` → `'consulta_marcada'`; `'tarefa_reatribuida'` → `'consulta_reatribuida'`; `'tarefa_cancelada'` → `'consulta_cancelada'`. Mantidos `'aviso'` e `'sistema'`.
+  - `url` default: `'/staff'` → `'/gestor/consultas'` (página legítima do domínio Fisioterapia).
+  - JSDoc atualizado com nota da migração DT1/F8.
+
+### DT1-D — Atualização dos callers de Notificacao
+- **`backend/utils/notificar.js`**:
+  - `criarNotificacaoInApp`: `opts.tarefa_id` → `opts.consulta_id` (JSDoc + implementação); `url` default `'/staff'` → `'/gestor/consultas'`.
+  - `notificarUtilizador`: `url` default `'/staff'` → `'/gestor/consultas'`; JSDoc atualizado com `opts.consulta_id`; passa `consulta_id` ao `criarNotificacaoInApp`.
+- **`frontend/src/components/notification-bell.tsx`**:
+  - Interface `notificacoes`: `tarefa_id?: string | null` → `consulta_id?: string | null`.
+  - `handleClickNotificacao`: `if (n.tarefa_id) router.push('/staff/tarefas/${n.tarefa_id}')` → `if (n.consulta_id) router.push('/gestor/consultas')` (a rota `/staff/tarefas/:id` é legacy e quebrada — o dashboard do fisio será migrado em futura tarefa).
+  - JSDoc atualizado (Prompt 118 / DT1).
+- **Verificação**: zero callers residuais que passem `tarefa_id` ou `tipo: 'tarefa_*'` ao `notificarUtilizador`/`criarNotificacaoInApp` (confirmado com grep — `tarefaController` foi removido em F8, pelo que não há callers legacy).
+
+### DT1-E — Reescrita do README.md
+- **Problema**: o README (228 linhas) estava severamente desatualizado — ainda descrevia a era Autocell (Tarefa, Propriedade, loadBalancer, scheduler, Smoobu, role `gestor`/`staff`), não mencionava nenhum endpoint F1–F9, e listava páginas removidas em F8 (`/admin/propriedades`, `/admin/equipa`, `/admin/calendario`, `/gestor/tarefas`, `/gestor/calendario`, `/gestor/webhooks`).
+- **Correção**: README reescrito de raiz para refletir o estado real pós-F9:
+  - Descrição: "SaaS multi-tenant de gestão para Clínicas de Fisioterapia".
+  - Nova secção "Funcionalidades principais" (Consultas, Pacientes, Horários, Protocolos, Documentos, Calendário FullCalendar, RBAC 4 roles, 5 cron jobs clínicos, Notificações, Impersonation, AI Summary, Auditoria & Soft Delete).
+  - Estrutura do repositório atualizada (13 modelos, 12 controllers, 5 jobs F7, 6 utils — sem loadBalancer/scheduler).
+  - Tabela de variáveis de ambiente completa (incluindo `GEMINI_API_KEY`).
+  - Tabela de endpoints completa e correta: `/api/gestor/consultas`, `/pacientes`, `/horarios`, `/protocolos`, `/documentos`, `/ausencias`, `/relatorios/ai-summary`, `/api/admin/empresas/*` (toggle-status, hard-reset, soft delete, restaurar, config, impersonar), `/api/auth/exit-impersonation`, notificações in-app.
+  - Rotas frontend atualizadas: `/gestor/consultas`, `/gestor/calendario-consultas`, `/gestor/pacientes`, `/gestor/equipa/horarios`, `/gestor/protocolos`, `/gestor/documentos`, etc.
+  - Removidas todas as menções a Tarefa, Propriedade (mantido só como alias de Sala), Autocell, Alojamento Local, Smoobu, loadBalancer, scheduler.
+
+### DT1-F — Validação
+- Backend: `node --check` em `Notificacao.js` e `notificar.js` — OK. Testes Jest: **130/130 a passar** ✓.
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (todas as rotas compilaram, incluindo as que antes importavam `DetalhesReservaCard`).
+- Verificação final: zero `tarefa_id` no código backend (exceto 2 comentários históricos em `Notificacao.js` que documentam a migração); zero `DetalhesReservaCard` no frontend; zero ficheiros de teste em `uploads/` no index do git.
+
+Stage Summary:
+- **Segurança RGPD**: `.gitignore` na raiz criado; 8 ficheiros de teste removidos do index do git (mantidos localmente); `uploads/.gitkeep` preserva a pasta.
+- **Conflito de compilação**: 2 stubs duplicados (`detalhes-reserva-card.tsx` + `.jsx`) apagados; imports e JSX removidos nos 2 callers (sem alteração visual — o componente era `return null`).
+- **Schema BD**: `Notificacao.tarefa_id` (ref `'Tarefa'` dangling) → `consulta_id` (ref `'Consulta'`); enum `tipo` renomeado (`tarefa_*` → `consulta_*`); callers atualizados (`notificar.js` + `notification-bell.tsx`).
+- **README**: reescrito de raiz para refletir o estado real pós-F9 (Fisioterapia, Consultas, Pacientes, 4 roles, 5 cron jobs, endpoints F1–F9). Removidas todas as menções legacy.
+- **Testes**: backend 130/130 ✓; frontend tsc ✓ + next build ✓.
+- **Próximo passo**: commit + push para branch `dev` com mensagem `fix: resolucao de divida tecnica critica e atualizacao do readme`.
+
+---
+
+Task ID: R0-FF
+Agent: Z.ai Code
+Task: Rebranding global FisioCell → FisioFernandes em todo o repositório (backend + frontend + docs). O repo foi renomeado no GitHub (FisioCell → FisioFernandes, com redirect automático), mas o código ainda usava o nome legado "FisioCell"/"fisiocell" em 182 ocorrências espalhadas por ~80 ficheiros. Esta tarefa consolida a identidade definitiva.
+
+Work Log:
+- Mapeamento exaustivo (grep): 182 ocorrências de `fisiocell`/`FisioCell` em ~80 ficheiros de código fonte (backend + frontend + docs), 23 ocorrências no WORKLOG.md (preservadas — histórico) e 0 no agent-ctx/.
+- Remote URL atualizado: `https://github.com/makigero-lab/FisioCell.git` → `https://github.com/makigero-lab/FisioFernandes.git` (o GitHub renomeou o repo; o redirect automático funcionava, mas atualizei para evitar avisos).
+
+### R0-FF-A — Backend (branding + cookies + env)
+- `backend/package.json`: name "fisiocell-backend" → "fisiofernandes-backend"; description "(FisioCell)" → "(FisioFernandes)".
+- `backend/server.js`: cabeçalho "FisioCell - API de gestão para Clínicas de Fisioterapia" → "FisioFernandes - API de gestão para Clínicas de Fisioterapia"; VAPID_SUBJECT mailto:admin@fisiocell.com → admin@fisiofernandes.com; healthcheck "API do FisioCell..." → "API do FisioFernandes online e ligada à BD!".
+- `backend/.env.example`: rebranding completo (MONGODB_URI `fisiocell` → `fisiofernandes`, JWT_SECRET `fisiocell-dev-secret` → `fisiofernandes-dev-secret`, FRONTEND_URL `fisiocell.vercel.app` → `fisiofernandes.vercel.app`, VAPID_SUBJECT `admin@fisiocell.com` → `admin@fisiofernandes.com`).
+- `backend/middleware/auth.js`: JWT_SECRET fallback "fisiocell-dev-secret-change-me" → "fisiofernandes-dev-secret-change-me".
+- `backend/utils/geocoding.js`: User-Agent Nominatim "FisioCell/1.0 (fisiocell.app)" → "FisioFernandes/1.0 (fisiofernandes.app)".
+- `backend/utils/push.js`: VAPID_SUBJECT mailto:admin@fisiocell.com → admin@fisiofernandes.com (2 sítios).
+- `backend/tests/server.test.js`: mensagem esperada do healthcheck atualizada para "API do FisioFernandes online e ligada à BD!".
+- Cabeçalhos "— FisioCell" → "— FisioFernandes" em todos os ficheiros backend (controllers, models, routes, utils, jobs, middleware, scripts auxiliares) via sed.
+- Scripts auxiliares (`criar-admin.js`, `testar-login.js`, `forcar-password.js`, `fix-password.js`): mensagens e emails rebranded.
+
+### R0-FF-B — Frontend (cookies + manifest + SW + páginas + componentes)
+- Cookies de autenticação renomeados em 13 ficheiros: `fisiocell_token` → `fisiofernandes_token`; `fisiocell_admin_token` → `fisiofernandes_admin_token`. Ficheiros: middleware.ts, login/logout/exit-impersonation/me routes, impersonar/[id], admin/[...path], admin/empresas/*, gestor/[...path], staff/[...path].
+- sessionStorage/cookie: `fisiocell_impersonating` → `fisiofernandes_impersonating` (impersonation-banner.tsx, admin/page.tsx); `fisiocell_theme` → `fisiofernandes_theme` (theme-toggle.tsx).
+- `frontend/public/manifest.json`: "FisioCell — Gestão de Clínicas de Fisioterapia" → "FisioFernandes — Gestão de Clínicas de Fisioterapia"; short_name e description atualizados.
+- `frontend/package.json`: name "fisiocell-frontend" → "fisiofernandes-frontend"; description corrigida de "Alojamento Local" para "Clínicas de Fisioterapia" (bug pré-existente herdado do All2gether).
+- `frontend/.env.example`: NEXT_PUBLIC_API_URL `fisiocell-backend.onrender.com` → `fisiofernandes-backend.onrender.com`; cabeçalho "FisioFernandes Frontend".
+- `frontend/worker/index.js` + `frontend/public/worker-*.js`: título de notificação push default "FisioCell" → "FisioFernandes".
+- `frontend/src/app/layout.tsx`: metadata title "FisioCell — Gestão de Alojamento Local" → "FisioFernandes — Gestão de Clínicas de Fisioterapia"; description atualizada para "SaaS de gestão para Clínicas de Fisioterapia: marcações, pacientes, horários e fichas clínicas."; appleWebApp.title "FisioFernandes".
+- `frontend/src/app/login/page.tsx`: "FisioFernandes · Gestão de Alojamento Local" → "FisioFernandes · Gestão de Clínicas de Fisioterapia".
+- `frontend/src/app/page.tsx` (landing): "A plataforma de gestão para Alojamento Local. Atribuição inteligente de tarefas de limpeza." → "A plataforma de gestão para Clínicas de Fisioterapia. Marcações, pacientes, horários e fichas clínicas."; rodapé atualizado.
+- Todas as referências visuais "FisioCell" em sidebars (admin-sidebar, gestor-sidebar), impersonation-banner, theme-toggle, páginas (admin, gestor/*, staff/*) → "FisioFernandes" via sed.
+- `frontend/src/app/globals.css`: "Tema FisioCell" → "Tema FisioFernandes".
+- `frontend/src/app/gestor/relatorios/page.tsx`: título do PDF export "Relatorio FisioCell" → "Relatorio FisioFernandes".
+
+### R0-FF-C — Documentação (README + docs/*.md)
+- `README.md`: rebranding global (FisioCell→FisioFernandes, fisiocell→fisiofernandes). Repositório atualizado para https://github.com/makigero-lab/FisioFernandes.
+- `docs/BACKEND.md`, `docs/FRONTEND.md`, `docs/ARQUITETURA.md`: rebranding global via sed.
+- **WORKLOG.md PRESERVADO** — 23 ocorrências históricas de fisiocell/FisioCell mantidas intencionalmente (são o registo de evolução do projeto: migrações Autocell→FisioCell→FisioFernandes). Apenas acrescentada esta entrada R0-FF no final.
+- `agent-ctx/` PRESERVADO (registo histórico da Task 56).
+
+### R0-FF-D — Validação
+- Backend: `node --check` em 56 ficheiros — todos OK. Testes Jest: **130/130 a passar** ✓ (incluindo o teste do healthcheck que agora espera "API do FisioFernandes online e ligada à BD!").
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (todas as rotas compilaram).
+- Verificação final grep: ZERO ocorrências de fisiocell/FisioCell em todo o repo (excluindo WORKLOG.md e agent-ctx/ que preservam o histórico intencionalmente, e a cache `.next/` que é regenerada a cada build).
+
+Stage Summary:
+- **Rebranding completo:** FisioCell → FisioFernandes aplicado em ~80 ficheiros (backend + frontend + docs). 182 ocorrências → ZERO residuais (fora do histórico preservado).
+- **Cookies renomeados:** `fisiofernandes_token` + `fisiofernandes_admin_token` em 13 ficheiros frontend. ⚠️ Nota: renomear cookies invalida sessões em produção — todos os utilizadores terão de fazer login novamente após deploy.
+- **Domínio corrigido:** bugs pré-existentes herdados do All2gether (description/title com "Alojamento Local") corrigidos para "Clínicas de Fisioterapia" em package.json, layout.tsx, login/page.tsx, page.tsx (landing).
+- **Remote URL atualizado:** `https://github.com/makigero-lab/FisioFernandes.git` (repo renomeado no GitHub).
+- **Histórico preservado:** WORKLOG.md (23 ocorrências) e agent-ctx/ mantidos intencionalmente como registo de evolução do projeto.
+- **Testes:** backend 130/130 ✓; frontend tsc ✓ + next build ✓.
+- **Próximo passo:** commit + push para branch `dev` com mensagem `chore(rebranding): alteracao global da identidade para FisioFernandes`.
+
+---
+
+Task ID: RF1
+Agent: Z.ai Code
+Task: Refatorização da área do Fisioterapeuta (frontend /staff) para consumir a API de Consultas em vez dos stubs legacy de Tarefas. A área /staff ainda usava componentes e endpoints herdados do projeto base (Alojamento Local — Tarefas, Propriedades, Checklists), que devolviam arrays vazios ou 410 Gone. O backend já fornece a API correta de Consultas (F4-F7).
+
+Work Log:
+
+### RF1-A — Backend: estender atualizarNotaClinica para aceitar `estado`
+- **Problema**: o fisioterapeuta precisava de mudar o estado da consulta (marcada → em_curso → concluida), mas o endpoint `PUT /api/gestor/consultas/:id` (atualizarConsulta) tem permissão `isRececionista` (exclui fisioterapeuta). O fisio só tinha acesso a `PATCH /:id/nota-clinica` (isClinico).
+- **Solução**: estendido `consultaController.atualizarNotaClinica` (backend/controllers/consultaController.js) para aceitar `estado` no body. Transições permitidas: apenas `em_curso` (Iniciar) e `concluida` (Concluir), a partir dos estados `marcada`/`confirmada`/`em_curso`. Consultas canceladas/faltou/nao_compareceu são imutáveis. Ao concluir, define `concluida_em = new Date()`. A cédula continua a ser validada a partir do perfil do fisio (perfil_profissional.cedula), não do body.
+
+### RF1-B — Frontend: proxy routes para /api/staff/consultas
+- **Criada** `frontend/src/app/api/staff/consultas/hoje/route.ts` — GET que calcula o intervalo de hoje (meia-noite UTC a meia-noite de amanhã) e faz proxy para `${BACKEND_URL}/api/gestor/consultas?inicio=...&fim=...` injetando o JWT. O backend aplica automaticamente o filtro `fisioterapeuta_id = req.user.id` quando o role é fisioterapeuta.
+- **Criada** `frontend/src/app/api/staff/consultas/[...path]/route.ts` — catch-all proxy que mapeia `/api/staff/consultas/*` → `/api/gestor/consultas/*` no backend (para `GET /:id`, `PATCH /:id/nota-clinica`, etc.). Injeta o JWT do cookie httpOnly.
+
+### RF1-C — Frontend: renomear pasta /staff/tarefas → /staff/consultas
+- **Removida** pasta `frontend/src/app/staff/tarefas/` (legacy).
+- **Criada** `frontend/src/app/staff/consultas/[id]/page.tsx` — página de detalhe de consulta. Faz `GET /api/staff/consultas/:id` (proxy → `/api/gestor/consultas/:id`), passa o `ConsultaDTO` ao `DetalheConsultaClient`. Trata 404 (não encontrada) e 403 (sem permissão — fisio só vê as suas consultas).
+
+### RF1-D — Frontend: refatorizar /staff/page.tsx (Minhas Consultas de Hoje)
+- **Reescrita** `frontend/src/app/staff/page.tsx`:
+  - Antes: `fetch("/api/auth/me/tarefas")` (stub que devolvia `[]`).
+  - Agora: `fetch("/api/staff/consultas/hoje")` (proxy → `/api/gestor/consultas` com filtro de hoje + fisioterapeuta_id automático).
+  - Interface `TarefaReal` + `adaptarTarefa` → substituídas por `ConsultaDTO` direto de `lib/api.ts`.
+  - `<TaskCard tarefa={...} />` → `<ConsultaCard consulta={c} />`.
+  - Textos: "Minhas Tarefas" → "Minhas Consultas de Hoje"; "tarefas" → "consultas"; "A carregar tarefas…" → "A carregar consultas…"; "Sem tarefas neste dia" → "Sem consultas marcadas para hoje".
+  - Navegação por dias removida (o endpoint `/api/staff/consultas/hoje` devolve só as de hoje; navegação para outros dias fica via `/staff/calendario`).
+  - Rodapé: "Área do Staff" → "Área do Fisioterapeuta".
+  - Diálogo "Reportar Falta Hoje" mantido (funcionalidade ausências preservada).
+
+### RF1-E — Frontend: novos componentes staff
+- **Criado** `frontend/src/components/staff/consulta-card.tsx`:
+  - Componente `<ConsultaCard consulta={ConsultaDTO} />`.
+  - Mostra: nome do paciente, tipo de consulta (Primeira Consulta/Sessão/Reavaliação/Alta/Grupo), hora de início, duração, sala, estado (Badge colorido).
+  - Cartão clicável → `/staff/consultas/:id`.
+  - Substitui o antigo `task-card.tsx` (legacy do Alojamento Local — Tarefas de Limpeza).
+- **Criado** `frontend/src/components/staff/detalhe-consulta-client.tsx`:
+  - Componente `<DetalheConsultaClient consulta={ConsultaDTO} />`.
+  - Mostra: dados da consulta (tipo, sala, fisio, data/hora, duração, estado), dados do paciente (nome, telefone), protocolo aplicado (snapshot com items marcáveis), formulário Nota Clínica SOAP (S/O/A/P/Tratamento), campo de Cédula Profissional (obrigatório para concluir).
+  - Botões: "Iniciar Consulta" (muda estado para `em_curso`), "Guardar Nota (rascunho)" (grava SOAP sem mudar estado), "Concluir Consulta" (muda estado para `concluida` + grava SOAP + exige cédula).
+  - Consultas concluídas são imutáveis (RGPD/legal) — campos disabled + badge "Imutável".
+  - Substitui o antigo `detalhe-tarefa-client.tsx` (legacy).
+- **Apagados** `task-card.tsx` e `detalhe-tarefa-client.tsx` (legacy).
+
+### RF1-F — Frontend: atualização de links e notification-bell
+- `frontend/src/components/notification-bell.tsx`: redirect role-aware. Ao clicar numa notificação com `consulta_id`: se o path atual começa com `/staff` (fisio) → `/staff/consultas/:id`; caso contrário (gestor) → `/gestor/consultas/:id`. Usa `usePathname()` do next/navigation.
+- `frontend/src/app/staff/calendario/page.tsx`: links `/staff/tarefas/:id` → `/staff/consultas/:id` (3 ocorrências via sed). A página em si ainda usa o stub `/me/calendario` (legacy — dívida técnica de Fase 2), mas os links agora apontam para o caminho correto.
+
+### RF1-G — Frontend: DTO atualizado
+- `frontend/src/lib/api.ts`: `ConsultaDTO.nota_clinica` ganhou campo `protocolo_aplicado?: { nome: string; items: { texto: string; concluido: boolean }[] }[]` (F5 — snapshot do protocolo aplicado, imutável após criação).
+
+### RF1-H — Validação
+- Backend: `node --check` em `consultaController.js` — OK. Testes Jest: **130/130 a passar** ✓ (a extensão de `atualizarNotaClinica` para aceitar `estado` é retrocompatível — `estado` é opcional no body).
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (rota `ƒ /staff/consultas/[id]` registada como dinâmica).
+- Confirmado: zero referências residuais a `/staff/tarefas`, `TaskCard`, ou `DetalheTarefaClient` no código frontend (apenas em docs/WORKLOG como histórico).
+
+Stage Summary:
+- **Backend**: `atualizarNotaClinica` estendido para aceitar `estado` (fisio pode Iniciar `em_curso` / Concluir `concluida`) — transições restritas e validadas, cédula continua a ser do perfil.
+- **Frontend proxy routes**: `/api/staff/consultas/hoje` (GET, calcula intervalo de hoje) + `/api/staff/consultas/[...path]` (catch-all → `/api/gestor/consultas/*`).
+- **Páginas**: `/staff/page.tsx` reescrita (Minhas Consultas de Hoje); `/staff/consultas/[id]/page.tsx` criada (detalhe com SOAP).
+- **Componentes**: `consulta-card.tsx` + `detalhe-consulta-client.tsx` criados; `task-card.tsx` + `detalhe-tarefa-client.tsx` apagados (legacy).
+- **Navegação**: `notification-bell.tsx` redirect role-aware; `staff/calendario` links atualizados.
+- **DTO**: `ConsultaDTO.nota_clinica.protocolo_aplicado` adicionado.
+- **Testes**: backend 130/130 ✓; frontend tsc ✓ + next build ✓ (rota `/staff/consultas/[id]` registada).
+- **Próximo passo**: commit + push para branch `dev`.
+
+---
+
+Task ID: S1
+Agent: Z.ai Code
+Task: Implementar Single Sign-On (SSO) entre o portal central Autocell e o FisioFernandes. O Autocell gera um JWT externo assinado com um segredo partilhado e redireciona o browser do admin para o FisioFernandes, que valida o token, inicia a sessão de forma segura e redireciona para a área administrativa. Arquitetura proxy cross-domain (mesmo padrão usado no All2gether).
+
+Work Log:
+
+### S1-A — Variável de ambiente
+- `backend/.env.example`: adicionada `AUTOCELL_SSO_SECRET=seu_segredo_sso_aqui` com comentário explicativo (segredo partilhado entre Autocell e FisioFernandes; tem de ser idêntico nos dois sistemas; se vazio, SSO desativado). Aproveitei para REMOVER o bloco `SMOOBU_API_KEY=` (código morto — a integração Smoobu foi eliminada em F0, o `smoobuController.js` já não existe).
+
+### S1-B — Backend: ssoLogin (controllers/authController.js)
+- Criada e exportada a função `ssoLogin` (async) no final do authController, depois do `pushUnsubscribe`.
+- Suporta DOIS modos de resposta:
+  - **Modo JSON** (ativa se `?json=true` OU header `Accept: application/json`): devolve `{ sucesso: true, token: <jwt_interno> }` (200) sem setar cookies nem redirecionar. Para a proxy route do Next.js definir cookies no domínio do frontend (solução cross-domain).
+  - **Modo REDIRECT** (padrão, retrocompatível): seta cookies httpOnly (`fisiofernandes_token` + `fisiofernandes_admin_token`, `sameSite: 'lax'`, `secure` em prod, `maxAge: 7d`) e faz `res.redirect(302)` para `FRONTEND_URL/admin`. Só funciona same-domain.
+- Lógica:
+  1. Extrai `token` de `req.query.token`.
+  2. Se token em falta OU `AUTOCELL_SSO_SECRET` não configurado → erro (401 JSON ou redirect `/login?erro=sso_falhou`).
+  3. `jwt.verify(token, SSO_SECRET)` valida o JWT externo. Erro → redirect erro.
+  4. Extrai `email` do payload (suporta `payload.email` OU `payload.sub`). Sem email → erro.
+  5. `Utilizador.findOne({ email, role: 'admin' })` — apenas admins entram via SSO. Não encontrado ou `!ativo` → erro.
+  6. Gera o JWT interno do FisioFernandes (`{ id, role, empresa_id }`, `JWT_SECRET`, `TOKEN_EXPIRACAO`).
+  7. Modo JSON → `200 { sucesso: true, token }`. Modo REDIRECT → seta cookies + `302 redirect /admin`.
+- JSDoc completo com diagrama do fluxo cross-domain, justificação dos dois modos, e nota de segurança (segredo SSO isolado do JWT_SECRET).
+- Helper `responderErro(motivo)` centraliza a resposta de erro conforme o modo (401 JSON ou 302 redirect).
+
+### S1-C — Rotas (routes/authRoutes.js)
+- Importado `ssoLogin` no destructuring do authController.
+- Adicionada rota pública: `router.get('/sso', ssoLogin);` (depois de `/login`, antes de `/me`).
+- Sem rate limiter próprio (o global de `/api/` — 100/15min — aplica-se; o segredo partilhado é a proteção principal).
+- Atualizado o cabeçalho JSDoc do ficheiro para listar o novo endpoint.
+
+### S1-D — Frontend: proxy route (frontend/src/app/api/auth/sso/route.ts) — NOVO
+- Criada a pasta `frontend/src/app/api/auth/sso/` e o ficheiro `route.ts` com método `GET`.
+- Fluxo da proxy:
+  1. Extrai `token` da query string.
+  2. Se token em falta → `NextResponse.redirect` para `/login?erro=sso_falhou`.
+  3. `fetch` ao backend em modo JSON: `GET ${NEXT_PUBLIC_API_URL}/api/auth/sso?token=...&json=true` com header `Accept: application/json` e `cache: "no-store"`.
+  4. Se backend devolver não-OK (401/500/etc.) → redirect para `/login?erro=sso_falhou`.
+  5. Faz parse do JSON e valida `{ sucesso: true, token }`. Se inválido → redirect erro.
+  6. Define os cookies httpOnly no DOMÍNIO do frontend via `cookies()` de `next/headers`:
+     - `fisiofernandes_token` (cookie de sessão principal, lido pelo middleware do frontend)
+     - `fisiofernandes_admin_token` (cookie de marcação de admin + backup de impersonação)
+     - Opções: `httpOnly: true`, `secure: NODE_ENV === 'production'`, `sameSite: 'lax'` (obrigatório para redirect top-level do SSO), `path: '/'`, `maxAge: 7 dias`.
+  7. `NextResponse.redirect` para `/admin`.
+- Qualquer exceção é apanhada e redireciona para `/login?erro=sso_falhou`.
+- JSDoc completo explica o problema cross-domain, a solução proxy, as vantagens e a segurança.
+
+### S1-E — Documentação (docs/BACKEND.md)
+- Secção `#### GET /api/auth/sso (público — Single Sign-On com o Autocell)` adicionada em §6.2, com:
+  - Dois modos de funcionamento (REDIRECT e JSON) com exemplos de chamada.
+  - Diagrama ASCII do fluxo completo cross-domain (Autocell → proxy Next.js → backend → browser).
+  - Fluxo passo-a-passo do modo JSON (recomendado para produção).
+  - Secção de segurança (token interno só transita servidor-a-servidor no modo JSON).
+  - Secção de erros separada por modo.
+  - Nota de arquitetura cross-domain (Render + Vercel) com explicação da proxy route.
+- Secção 5 (Variáveis de ambiente) atualizada com `AUTOCELL_SSO_SECRET`, `FRONTEND_URL`, `GEMINI_API_KEY`, `VAPID_*`.
+- Estrutura de ficheiros: `authRoutes.js` atualizado para mencionar `GET /api/auth/sso`.
+
+### S1-F — Validação
+- Backend: `node --check` em `authController.js` e `authRoutes.js` — OK. Testes Jest: **130/130 a passar** ✓ (a nova rota é pública e retrocompatível; não interfere com os fluxos testados).
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓; a rota `ƒ /api/auth/sso` aparece registada como dinâmica (server-rendered).
+
+Stage Summary:
+- **Novo endpoint:** `GET /api/auth/sso` (público) — valida JWT externo do Autocell com `AUTOCELL_SSO_SECRET`, procura admin por email, gera JWT interno, devolve JSON (modo `?json=true`) ou seta cookies + redirect (modo padrão).
+- **Proxy route:** `frontend/src/app/api/auth/sso/route.ts` — resolve o problema cross-domain (Render + Vercel): corre no MESMO domínio do frontend, pede o token ao backend em modo JSON, define cookies localmente, redireciona para `/admin`.
+- **Segurança:** segredo SSO isolado do `JWT_SECRET` interno; apenas role `admin`; `sameSite: 'lax'`; `httpOnly`; token interno nunca exposto ao browser no modo JSON.
+- **Variável de ambiente:** `AUTOCELL_SSO_SECRET` adicionada ao `.env.example` (partilhada com o Autocell).
+- **Bónus:** removido `SMOOBU_API_KEY=` do `.env.example` (código morto — Smoobu eliminado em F0).
+- **Docs:** `docs/BACKEND.md` §6.2 com documentação completa + diagrama; §5 com tabela de env vars atualizada.
+- **Testes:** backend 130/130 ✓; frontend tsc ✓ + next build ✓ (rota `/api/auth/sso` registada).
+- **Próximo passo:** commit + push para branch `dev`.
+
+---
+
+Task ID: W1
+Agent: Z.ai Code
+Task: Implementar o Sistema de Emissão de Webhooks (Outbound) para notificar o portal central Autocell quando ocorrem eventos críticos no FisioFernandes. Comunicação M2M assíncrona (fire-and-forget) com payloads leves ("esparso") e assinatura HMAC-SHA256. Integração em dois fluxos: Cão de Guarda Consultas (consultas pendentes) e Submissão de Notas Clínicas (consulta concluída).
+
+Work Log:
+
+### W1-A — Variáveis de ambiente (backend/.env.example)
+- Adicionadas:
+  - `AUTOCELL_WEBHOOK_URL=http://url-do-autocell/api/webhooks/fisiofernandes` (URL de destino no Autocell).
+  - `AUTOCELL_WEBHOOK_SECRET=o_mesmo_segredo_usado_no_autocell` (segredo para HMAC-SHA256; tem de ser idêntico no Autocell).
+- Comentário explica o modo degradado: se ambas as variáveis não estiverem definidas, o utilitário faz apenas console.log e não tenta o pedido de rede (útil em dev).
+
+### W1-B — Utilitário (backend/utils/outboundWebhook.js) — NOVO
+- Exporta `enviarEventoParaAutocell(tipoEvento, dadosPayload)` (async, fire-and-forget).
+- Lógica:
+  1. Se `AUTOCELL_WEBHOOK_URL` ou `AUTOCELL_WEBHOOK_SECRET` não definidas → `console.log` do evento e retorna (modo dev).
+  2. Monta o payload base esparso: `{ eventId: crypto.randomUUID(), eventType: tipoEvento, timestamp: ISO 8601, data: dadosPayload }`.
+  3. Serializa UMA VEZ (`JSON.stringify`) — a assinatura e o corpo enviado têm de ser byte-idênticos.
+  4. Gera assinatura HMAC-SHA256 do corpo JSON com `crypto.createHmac('sha256', WEBHOOK_SECRET).update(corpoJson, 'utf8').digest('hex')`.
+  5. `fetch(WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-FisioFernandes-Signature': assinatura }, body: corpoJson })`.
+  6. Se `!res.ok` → warning loggado, não lança.
+  7. Erros de rede (fetch failed) → warning loggado, não lança (fire-and-forget puro).
+- Também exporta `webhookConfigurado()` (boolean, útil para callers) e `gerarAssinatura()` (para testes/verificação).
+- JSDoc completo explica o fluxo, o modo degradado e o padrão fire-and-forget.
+- Teste manual validou: modo dev (console.log, sem rede) ✓; modo configurado com URL inexistente (falha graceful com warning, promise resolvida) ✓; assinatura HMAC gerada corretamente ✓.
+
+### W1-C — Integração no caoGuardaConsultas.js (evento `alerta.consultas_pendentes`)
+- Import lazy adicionado dentro de `executarCaoGuardaConsultas` (depois de notificar os diretores): `const { enviarEventoParaAutocell } = require('../utils/outboundWebhook');` (lazy como o `notificarUtilizador` para permitir spyOn nos testes).
+- No final (depois de `console.log('✅ Alertas enviados.')`), se houver pelo menos uma consulta problemática (órfã ou esquecida), dispara o webhook agregado **sem await** (fire-and-forget) envolvido em try/catch:
+  - Evento: `'alerta.consultas_pendentes'`.
+  - Payload: `{ consultas_ids: [String, ...] (IDs de órfãs + esquecidas), data_alvo: inicioHoje.toISOString() }`.
+- Só dispara se `consultasIds.length > 0` — não envia webhooks vazios.
+
+### W1-D — Integração no consultaController.atualizarNotaClinica (evento `consulta.concluida`)
+- Import lazy adicionado dentro do bloco `if (estado === 'concluida')` (só carrega o utilitário quando efetivamente precisa — micro-otimização).
+- Ponto de integração: depois de `await consulta.save()` + `registarAuditoria(...)`, antes de `return res.status(200)`.
+- Só dispara quando `estado === 'concluida'` (a consulta foi concluída neste pedido). O webhook é disparado **sem await** (fire-and-forget) envolvido em try/catch (nunca bloqueia a resposta ao fisio).
+- Payload enviado: `{ consulta_id: String(consulta._id), fisioterapeuta_id: String(consulta.fisioterapeuta_id), paciente_id: String(consulta.paciente_id) }`.
+- IDs convertidos para String (são ObjectIds) — payload esparso e serializável.
+
+### W1-E — Documentação (docs/BACKEND.md)
+- Nova secção **3.6. Sistema de Emissão de Webhooks (Outbound) — integração com o Autocell** com:
+  - Tabela de variáveis de ambiente (`AUTOCELL_WEBHOOK_URL`, `AUTOCELL_WEBHOOK_SECRET`).
+  - Explicação do modo degradado (dev sem config → console.log).
+  - Estrutura do payload esparso (JSON exemplo com eventId, eventType, timestamp, data).
+  - Secção "Assinatura HMAC-SHA256" explicando o cabeçalho `X-FisioFernandes-Signature` e como o Autocell verifica (recalcula o HMAC e compara).
+  - Tabela de cabeçalhos do pedido.
+  - Catálogo de eventos: `consulta.concluida` (com JSON exemplo + ponto de integração) e `alerta.consultas_pendentes` (com JSON exemplo + ponto de integração).
+  - Secção "Padrão fire-and-forget" explicando que erros de rede nunca bloqueiam o FisioFernandes.
+- Secção 5 (Variáveis de ambiente) atualizada com `AUTOCELL_WEBHOOK_URL` e `AUTOCELL_WEBHOOK_SECRET`.
+
+### W1-F — Validação
+- Sintaxe: `node --check` em `outboundWebhook.js`, `caoGuardaConsultas.js`, `consultaController.js` — todos OK.
+- Testes Jest: **129/130 a passar**. O 1 teste que falha (`briefingDiarioFisio — notifica fisio com consulta hoje`) é **pré-existente e flaky** (relacionado com fuso horário/cálculo de "hoje") — confirmei com `git stash` que já falhava ANTES das minhas alterações (mesmo resultado: 129 passed, 1 failed). As minhas integrações são retrocompatíveis e não quebraram nenhum teste novo. O teste `caoGuardaConsultas — deteta consultas esquecidas` passou ✓ (a integração do webhook não interfere com a lógica do job).
+
+Stage Summary:
+- **Novo utilitário:** `backend/utils/outboundWebhook.js` — `enviarEventoParaAutocell(tipoEvento, dadosPayload)` com HMAC-SHA256, modo degradado (dev), fire-and-forget puro.
+- **2 integrações:** `consulta.concluida` (consultaController.atualizarNotaClinica, quando estado passa a 'concluida') + `alerta.consultas_pendentes` (caoGuardaConsultas, agregado no final do job).
+- **Payload esparso:** só IDs críticos (consulta_id, fisioterapeuta_id, paciente_id / consultas_ids, data_alvo) — nunca dados sensíveis nem conteúdo completo (SOAP não é enviado).
+- **Segurança:** assinatura HMAC-SHA256 no cabeçalho `X-FisioFernandes-Signature`; o Autocell verifica recalculando com o mesmo segredo.
+- **Resiliência:** fire-and-forget — falhas no Autocell nunca prejudicam o FisioFernandes (erros loggados como warning, nunca lançados). O fisio não espera pelo webhook ao concluir uma consulta.
+- **Docs:** nova secção 3.6 no `docs/BACKEND.md` + tabela de env vars completa.
+- **Testes:** 129/130 ✓ (1 teste flaky pré-existente, não relacionado — confirmado via git stash).
+- **Próximo passo:** commit + push para branch `dev` com mensagem `feat(webhooks): integracao outbound de eventos fisiofernandes-autocell`.
+
+---
+
+Task ID: RF2
+Agent: Z.ai Code
+Task: Refatorização do calendário do fisioterapeuta (/staff/calendario) para consumir a API real de Consultas em vez do stub legacy /api/auth/me/calendario. Implementação do FullCalendar v6 com eventos clínicos, cores por estado e navegação para o detalhe da consulta.
+
+Work Log:
+
+### RF2-A — Proxy route root para listar consultas
+- Criado `frontend/src/app/api/staff/consultas/route.ts` — GET que faz proxy para `${BACKEND_URL}/api/gestor/consultas?inicio=...&fim=...` injetando o JWT. O catch-all `[...path]` existente não cobre o root path (sem segmento depois de `/consultas`), pelo que era necessário um route handler separado para o endpoint de listagem.
+- Repassa os query params `inicio` e `fim` recebidos do FullCalendar para o backend.
+- O backend aplica automaticamente o filtro `fisioterapeuta_id = req.user.id` quando o role é fisioterapeuta.
+
+### RF2-B — Reescrita do /staff/calendario/page.tsx
+- **Antes**: consumia o stub `/api/auth/me/calendario` (que devolve `{ tarefas: [], ausencias: [] }` — sempre vazio). Usava interfaces `TarefaMinha`, `AusenciaMinha`, ícones de limpeza/manutenção (legacy Alojamento Local). Lista manual de 30 dias com cartões.
+- **Agora**: FullCalendar v6 com:
+  - `events` como função async que faz `fetch('/api/staff/consultas?inicio=...&fim=...')` com o range de datas visível no calendário (atualiza dinamicamente ao mudar de mês/semana/dia).
+  - Mapeamento `ConsultaDTO → EventInput`: `title` = `${sala} · ${paciente}`; `start` = `data_hora_inicio`; `end` = `data_hora_fim`.
+  - **Cores por estado**: azul (#2563eb) para marcada/confirmada; amarelo/laranja (#d97706) para em_curso; verde (#16a34a) para concluida; vermelho (#dc2626) para cancelada/faltou/nao_compareceu.
+  - `eventClick` → `router.push('/staff/consultas/${event.id}')` (navega para o detalhe criado na Task RF1).
+  - `datesSet` → limpa erro e mostra loading ao mudar de vista.
+  - Vista inicial: `dayGridMonth` (mês); botões para mudar para semana/dia.
+  - `slotMinTime="08:00"` / `slotMaxTime="20:00"` (horário clínico).
+  - `nowIndicator` ativo (linha a mostrar a hora atual na vista de semana/dia).
+  - Locale `pt` do FullCalendar.
+  - Legenda de cores visível acima do calendário.
+  - `eventContent` custom para mostrar hora + título de forma compacta.
+  - `firstDay={1}` (segunda-feira como primeiro dia da semana).
+
+### RF2-C — Limpeza
+- Removidas todas as referências a `TarefaMinha`, `AusenciaMinha`, `tipoIcon` (limpeza/manutencao/check_in/check_out), `horaInicio`, `DiaAgenda`.
+- Removido o fetch a `/api/auth/me/calendario`.
+- Removido o `addDays`/`isSameDay` do date-fns (não necessário — o FullCalendar gere o range internamente).
+- Imports limpos: `ArrowLeft`, `CalendarDays`, `Loader2`, `AlertCircle` (lucide-react); `FullCalendar`, `dayGridPlugin`, `timeGridPlugin`, `interactionPlugin`, `ptLocale` (@fullcalendar/*).
+
+### RF2-D — Validação
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (rota `/staff/calendario` compilou, 2.79 kB + FullCalendar 186 kB total).
+- Confirmado: zero referências a `/api/auth/me/calendario` no código (apenas em comentário JSDoc que documenta a migração).
+
+Stage Summary:
+- **Calendário migrado**: de stub legacy (sempre vazio) para API real de Consultas via `/api/staff/consultas`.
+- **FullCalendar v6**: vista mensal/semanal/diária com eventos clínicos carregados dinamicamente.
+- **Cores por estado**: verde (concluída), azul (marcada/confirmada), amarelo (em_curso), vermelho (cancelada).
+- **Interatividade**: clique num evento → `/staff/consultas/${id}` (detalhe com SOAP).
+- **Proxy route**: criada `/api/staff/consultas/route.ts` (root GET) para o endpoint de listagem.
+- **Testes**: frontend tsc ✓ + next build ✓.
+- **Próximo passo**: commit + push para branch `dev`.

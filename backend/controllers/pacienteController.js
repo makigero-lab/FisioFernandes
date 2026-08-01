@@ -1,5 +1,5 @@
 /**
- * Paciente Controller — FisioCell
+ * Paciente Controller — FisioFernandes
  *
  * F2 — CRUD de Pacientes com permissões baseadas em role.
  *

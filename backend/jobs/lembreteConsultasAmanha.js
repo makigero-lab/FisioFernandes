@@ -1,5 +1,5 @@
 /**
- * Lembrete Consultas Amanhã — Cron Job (FisioCell)
+ * Lembrete Consultas Amanhã — Cron Job (FisioFernandes)
  *
  * F7 — Todos os dias às 19:00 (Europe/Lisbon), envia push/lembrete sobre
  * consultas marcadas para o dia seguinte.

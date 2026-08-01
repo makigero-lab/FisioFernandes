@@ -1,5 +1,5 @@
 /**
- * Controlador de Notificações In-App — FisioCell
+ * Controlador de Notificações In-App — FisioFernandes
  *
  * Prompt 114 — Centro de Notificações In-App (O Sino).
  *

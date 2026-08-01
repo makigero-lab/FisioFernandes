@@ -1,19 +1,24 @@
 /**
- * Modelo Notificacao — FisioCell
+ * Modelo Notificacao — FisioFernandes
  *
  * Prompt 114 — Centro de Notificações In-App (O Sino).
+ * F8/DT1 — Adaptado ao domínio Fisioterapia: tarefa_id → consulta_id,
+ *          ref 'Tarefa' → 'Consulta', enum tipos tarefa_* → consulta_*.
  *
  * Representa uma notificação in-app dirigida a um utilizador específico.
- * Mostrada no sino do header (Gestor e Staff) com badge de não-lidas.
+ * Mostrada no sino do header (Diretor Clínico/Rececionista e Fisioterapeuta)
+ * com badge de não-lidas.
  *
  * Campos:
  *   - utilizador_id: destinatário (ref Utilizador)
  *   - mensagem: texto da notificação
  *   - lida: boolean (default false)
  *   - data: timestamp (default agora)
- *   - tipo: categoria opcional ('tarefa_atribuida', 'tarefa_reatribuida',
- *     'aviso', etc.) para futura filtragem/ícones
- *   - url: URL para abrir ao clicar (ex.: '/staff' para ir às tarefas)
+ *   - tipo: categoria opcional ('consulta_marcada', 'consulta_reatribuida',
+ *     'consulta_cancelada', 'aviso', etc.) para futura filtragem/ícones
+ *   - url: URL para abrir ao clicar (ex.: '/gestor/consultas')
+ *   - consulta_id: referência opcional à Consulta que originou a notificação
+ *     (ex.: para o frontend abrir o detalhe da consulta ao clicar no sino)
  *
  * Índice em { utilizador_id, lida } para a query de contagem de não-lidas
  * ser rápida.
@@ -43,9 +48,9 @@ const NotificacaoSchema = new mongoose.Schema(
     tipo: {
       type: String,
       enum: [
-        'tarefa_atribuida',
-        'tarefa_reatribuida',
-        'tarefa_cancelada',
+        'consulta_marcada',
+        'consulta_reatribuida',
+        'consulta_cancelada',
         'aviso',
         'sistema',
       ],
@@ -53,13 +58,14 @@ const NotificacaoSchema = new mongoose.Schema(
     },
     url: {
       type: String,
-      default: '/staff',
+      default: '/gestor/consultas',
     },
-    // Prompt 116 — referência opcional à tarefa que originou a notificação
-    // (ex.: para o frontend abrir o detalhe da tarefa ao clicar no sino).
-    tarefa_id: {
+    // DT1 (F8) — referência opcional à Consulta que originou a notificação
+    // (ex.: para o frontend abrir o detalhe da consulta ao clicar no sino).
+    // Anteriormente tarefa_id (ref 'Tarefa') — removido em F8 (Tarefa eliminada).
+    consulta_id: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Tarefa',
+      ref: 'Consulta',
       default: null,
       index: true,
     },
