@@ -2227,3 +2227,51 @@ Stage Summary:
 - **Docs:** nova secção 3.6 no `docs/BACKEND.md` + tabela de env vars completa.
 - **Testes:** 129/130 ✓ (1 teste flaky pré-existente, não relacionado — confirmado via git stash).
 - **Próximo passo:** commit + push para branch `dev` com mensagem `feat(webhooks): integracao outbound de eventos fisiofernandes-autocell`.
+
+---
+
+Task ID: RF2
+Agent: Z.ai Code
+Task: Refatorização do calendário do fisioterapeuta (/staff/calendario) para consumir a API real de Consultas em vez do stub legacy /api/auth/me/calendario. Implementação do FullCalendar v6 com eventos clínicos, cores por estado e navegação para o detalhe da consulta.
+
+Work Log:
+
+### RF2-A — Proxy route root para listar consultas
+- Criado `frontend/src/app/api/staff/consultas/route.ts` — GET que faz proxy para `${BACKEND_URL}/api/gestor/consultas?inicio=...&fim=...` injetando o JWT. O catch-all `[...path]` existente não cobre o root path (sem segmento depois de `/consultas`), pelo que era necessário um route handler separado para o endpoint de listagem.
+- Repassa os query params `inicio` e `fim` recebidos do FullCalendar para o backend.
+- O backend aplica automaticamente o filtro `fisioterapeuta_id = req.user.id` quando o role é fisioterapeuta.
+
+### RF2-B — Reescrita do /staff/calendario/page.tsx
+- **Antes**: consumia o stub `/api/auth/me/calendario` (que devolve `{ tarefas: [], ausencias: [] }` — sempre vazio). Usava interfaces `TarefaMinha`, `AusenciaMinha`, ícones de limpeza/manutenção (legacy Alojamento Local). Lista manual de 30 dias com cartões.
+- **Agora**: FullCalendar v6 com:
+  - `events` como função async que faz `fetch('/api/staff/consultas?inicio=...&fim=...')` com o range de datas visível no calendário (atualiza dinamicamente ao mudar de mês/semana/dia).
+  - Mapeamento `ConsultaDTO → EventInput`: `title` = `${sala} · ${paciente}`; `start` = `data_hora_inicio`; `end` = `data_hora_fim`.
+  - **Cores por estado**: azul (#2563eb) para marcada/confirmada; amarelo/laranja (#d97706) para em_curso; verde (#16a34a) para concluida; vermelho (#dc2626) para cancelada/faltou/nao_compareceu.
+  - `eventClick` → `router.push('/staff/consultas/${event.id}')` (navega para o detalhe criado na Task RF1).
+  - `datesSet` → limpa erro e mostra loading ao mudar de vista.
+  - Vista inicial: `dayGridMonth` (mês); botões para mudar para semana/dia.
+  - `slotMinTime="08:00"` / `slotMaxTime="20:00"` (horário clínico).
+  - `nowIndicator` ativo (linha a mostrar a hora atual na vista de semana/dia).
+  - Locale `pt` do FullCalendar.
+  - Legenda de cores visível acima do calendário.
+  - `eventContent` custom para mostrar hora + título de forma compacta.
+  - `firstDay={1}` (segunda-feira como primeiro dia da semana).
+
+### RF2-C — Limpeza
+- Removidas todas as referências a `TarefaMinha`, `AusenciaMinha`, `tipoIcon` (limpeza/manutencao/check_in/check_out), `horaInicio`, `DiaAgenda`.
+- Removido o fetch a `/api/auth/me/calendario`.
+- Removido o `addDays`/`isSameDay` do date-fns (não necessário — o FullCalendar gere o range internamente).
+- Imports limpos: `ArrowLeft`, `CalendarDays`, `Loader2`, `AlertCircle` (lucide-react); `FullCalendar`, `dayGridPlugin`, `timeGridPlugin`, `interactionPlugin`, `ptLocale` (@fullcalendar/*).
+
+### RF2-D — Validação
+- Frontend: `tsc --noEmit` — **0 erros** ✓. `next build` — **exit 0** ✓ (rota `/staff/calendario` compilou, 2.79 kB + FullCalendar 186 kB total).
+- Confirmado: zero referências a `/api/auth/me/calendario` no código (apenas em comentário JSDoc que documenta a migração).
+
+Stage Summary:
+- **Calendário migrado**: de stub legacy (sempre vazio) para API real de Consultas via `/api/staff/consultas`.
+- **FullCalendar v6**: vista mensal/semanal/diária com eventos clínicos carregados dinamicamente.
+- **Cores por estado**: verde (concluída), azul (marcada/confirmada), amarelo (em_curso), vermelho (cancelada).
+- **Interatividade**: clique num evento → `/staff/consultas/${id}` (detalhe com SOAP).
+- **Proxy route**: criada `/api/staff/consultas/route.ts` (root GET) para o endpoint de listagem.
+- **Testes**: frontend tsc ✓ + next build ✓.
+- **Próximo passo**: commit + push para branch `dev`.
