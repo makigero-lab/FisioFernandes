@@ -2275,3 +2275,45 @@ Stage Summary:
 - **Proxy route**: criada `/api/staff/consultas/route.ts` (root GET) para o endpoint de listagem.
 - **Testes**: frontend tsc ✓ + next build ✓.
 - **Próximo passo**: commit + push para branch `dev`.
+
+---
+
+Task ID: FIX-F8-FE
+Agent: Z.ai Code
+Task: Corrigir crash de runtime em produção `TypeError: Cannot read properties of undefined (reading 'length')` reportado na consola do browser (chunks `997-84ea3c5fabd70ec2.js` / `fd9d1056-d85d32197eafe8b4.js` / `page-*.js`).
+
+Work Log:
+- Clonado o repositório FisioFernandes (branch `dev`) para `/home/z/fisiofernandes`; remote limpo do token (URL sem credenciais).
+- Análise rigorosa da estrutura: lido `WORKLOG.md` (tail), `docs/FRONTEND.md`, modelos Mongoose (`Consulta`, `ModeloProtocolo`), controllers (`consultaController`, `protocoloController`, `relatorioController`, `gestorController`), DTOs (`frontend/src/lib/api.ts`) e as páginas frontend recentemente alteradas (RF1/RF2: `/staff`, `/staff/consultas/[id]`, `detalhe-consulta-client.tsx`, `consulta-card.tsx`).
+- Mapeados todos os acessos `.length` no frontend (`rg`). Triagem entre acessos em render vs. em handlers de evento.
+- **Causa raiz identificada:** a migração F8 do backend (domínio Tarefa → Consulta) renomeou os campos das respostas de `getDashboard` e `getRelatorioProdutividade`, mas o frontend de `/gestor` e `/gestor/relatorios` NÃO foi atualizado e continuava a ler os nomes antigos — todos `undefined` em runtime, crachando no primeiro `data.<campo>.length` do render.
+  - Backend `getDashboard` devolve: `consultasHoje`, `consultasMarcadasHoje`, `consultasConcluidasHoje`, `cargaPorFisio` (item com `consultas`). Frontend lia: `tarefasHoje`, `tarefasPorAtribuir`, `tarefasConcluidasHoje`, `tarefasPorStaff` (item com `tarefas`).
+  - Backend `getRelatorioProdutividade` devolve: `totalConsultas`, `porFisio`, `porSala`. Frontend lia: `totalTarefas`, `porStaff`, `porPropriedade`.
+  - Corroboração: os hashes dos chunks no trace do erro (`997-84ea3c5fabd70ec2.js`, `fd9d1056-d85d32197eafe8b4.js`) coincidem com os chunks partilhados do build Next.js do FisioFernandes.
+- **Correção `/gestor/page.tsx` (dashboard):**
+  - `DashboardData`: renomeado `tarefasHoje`→`consultasHoje`, `tarefasPorAtribuir`→`consultasMarcadasHoje`, `tarefasConcluidasHoje`→`consultasConcluidasHoje`, `tarefasPorStaff`→`cargaPorFisio` (item `{ consultas, carga_minutos }`).
+  - `carregar`: normaliza `dashRes.cargaPorFisio ?? []` (defesa em profundidade).
+  - Stats: labels "Tarefas hoje"→"Consultas hoje", "Por atribuir"→"A decorrer"; "Concluídas" mantido.
+  - Card "Estado da equipa": `data.cargaPorFisio.length`/`.map`, `{s.consultas} consulta(s)`, "Sem consultas marcadas hoje."; descrição "Carga de trabalho de hoje (consultas).".
+  - Subtítulo do header: "limpezas"→"consultas".
+  - Bloco "Radar de Risco" (legacy Tarefa — `checkinsEmRisco`): mantido com optional chaining (`data?.checkinsEmRisco && ...`); o backend F8 já não devolve este campo, pelo que não é exibido nem cracha. Comentário adicionado a explicar.
+- **Correção `/gestor/relatorios/page.tsx`:**
+  - `RelatorioData`: `PorStaff`→`PorFisio`, `PorPropriedade`→`PorSala` (campo `propriedade_id`→`sala_id`), `resumo.totalTarefas`→`totalConsultas`, `porStaff`→`porFisio`, `porPropriedade`→`porSala`.
+  - `carregar`: normaliza `porFisio`/`porSala`/`porDia`/`porEstado` com `?? []`.
+  - `exportarPDF` (HTML para impressão): KPIs (`r.totalConsultas`), secções staff (`data.porFisio`, `fisioHtml`, "Produtividade por Fisioterapeuta") e propriedade (`data.porSala`, `salaHtml`, "Consultas por Sala"); `totalTarefas`→`totalConsultas` no cálculo de percentagens de estado.
+  - Render: LineChart "Consultas agendadas vs. concluídas"; BarChart `data.porFisio` "Produtividade por fisioterapeuta"; PieChart "Repartição das consultas"; tabela `data.porSala` "Carga por sala" (colunas "Sala"/"Consultas"), `p.sala_id` como key, `data.resumo.totalConsultas` no `% do total`.
+  - Stats: "Total consultas" com `r.totalConsultas`.
+- **Hardening `components/staff/detalhe-consulta-client.tsx`:** o `useState` do `protocolo` normaliza cada secção (`items: Array.isArray(sec.items) ? sec.items : []`); o `reduce` de contagem (`totalItensProtocolo`, `itensConcluidos`) passou a usar `Array.isArray(sec.items) ?` — defesa contra snapshots malformados/legados que pudessem crachar com o mesmo erro.
+- **Validação:**
+  - `npx tsc --noEmit` — 0 erros ✓.
+  - `npx next build` — exit 0 ✓; rotas `/gestor` (4.56 kB) e `/gestor/relatorios` (129 kB) compiladas; chunks partilhados `997-84ea3c5fabd70ec2.js` (34.1 kB) + `fd9d1056-d85d32197eafe8b4.js` (53.6 kB) presentes (mesmos hashes do trace reportado).
+  - Confirmado: o endpoint IA (`getResumoIA` → `construirContexto`) já era tolerante a ambos os conjuntos de nomes (F8 — linha 373-375 do `relatorioController`), pelo que o `POST /api/gestor/relatorios/ai-summary` continua a funcionar com o payload renomeado.
+- **Documentação:** `docs/FRONTEND.md` — adicionada entrada "Fix F8-FE" na tabela do Histórico de alterações (§13). A tabela de rotas (§3) já mencionava os nomes corretos (F8) — foi o código que não acompanhava a doc; agora está alinhado.
+
+Stage Summary:
+- **Causa raiz:** migração F8 do backend (Tarefa → Consulta) NÃO propagada para o frontend das páginas `/gestor` e `/gestor/relatorios`. Os campos lidos eram `undefined` em runtime → `TypeError: Cannot read properties of undefined (reading 'length')` no primeiro render.
+- **Ficheiros alterados (3):** `frontend/src/app/gestor/page.tsx`, `frontend/src/app/gestor/relatorios/page.tsx`, `frontend/src/components/staff/detalhe-consulta-client.tsx`.
+- **Estratégia:** alinhamento dos nomes dos campos com a resposta real do backend + normalização defensiva (`?? []`) no carregamento (defesa em profundidade para tolerar respostas parciais/futuras). Sem alterações no backend (este já estava correto pós-F8).
+- **Hardening extra:** o `reduce` do protocolo SOAP no detalhe da consulta passou a ser defensivo (previne o mesmo crash com snapshots malformados).
+- **Validação:** tsc ✓ + next build ✓. O endpoint IA já era tolerante.
+- **Próximo passo:** commit + push para branch `dev` com mensagem `fix(frontend): alinhar dashboard e relatorios com a API pos-F8 (crash undefined.length)`.

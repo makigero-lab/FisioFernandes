@@ -46,7 +46,7 @@ import { adminGet, adminPost } from "@/lib/api";
 /* Tipos                                                               */
 /* ------------------------------------------------------------------ */
 
-interface PorStaff {
+interface PorFisio {
   utilizador_id: string | null;
   nome: string;
   total: number;
@@ -67,8 +67,8 @@ interface PorEstado {
   total: number;
 }
 
-interface PorPropriedade {
-  propriedade_id: string;
+interface PorSala {
+  sala_id: string;
   nome: string;
   total: number;
   carga_minutos: number;
@@ -77,7 +77,8 @@ interface PorPropriedade {
 interface RelatorioData {
   periodo: { inicio: string; fim: string };
   resumo: {
-    totalTarefas: number;
+    // F8 — Renomeado de totalTarefas → totalConsultas (domínio Fisioterapia).
+    totalConsultas: number;
     concluidas: number;
     taxaConclusao: number;
     emAtraso: number;
@@ -87,10 +88,11 @@ interface RelatorioData {
     tempoEstimadoMedioMinutos?: number;
     tempoRealMedioMinutos?: number;
   };
-  porStaff: PorStaff[];
+  // F8 — Renomeado de porStaff → porFisio e porPropriedade → porSala.
+  porFisio: PorFisio[];
   porDia: PorDia[];
   porEstado: PorEstado[];
-  porPropriedade: PorPropriedade[];
+  porSala: PorSala[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -190,7 +192,15 @@ export default function RelatoriosPage() {
       const res = await adminGet<RelatorioData>(
         `/api/gestor/relatorios/produtividade?${params.toString()}`
       );
-      setData(res);
+      // F8 — Normaliza arrays para evitar crash de render se o backend omitir
+      // algum campo (defesa em profundidade).
+      setData({
+        ...res,
+        porFisio: res.porFisio ?? [],
+        porSala: res.porSala ?? [],
+        porDia: res.porDia ?? [],
+        porEstado: res.porEstado ?? [],
+      });
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar relatório.");
     } finally {
@@ -252,36 +262,36 @@ export default function RelatoriosPage() {
       const diff = tempoReal - tempoEstimado;
 
       const kpisHtml = [
-        '<div class="kpi"><div class="label">Total Tarefas</div><div class="value">' + (r.totalTarefas ?? 0) + '</div></div>',
-        '<div class="kpi"><div class="label">Concluidas</div><div class="value">' + (r.concluidas ?? 0) + '</div><div class="sub">' + Math.round((r.concluidas / Math.max(1, r.totalTarefas)) * 100) + '%</div></div>',
+        '<div class="kpi"><div class="label">Total Consultas</div><div class="value">' + (r.totalConsultas ?? 0) + '</div></div>',
+        '<div class="kpi"><div class="label">Concluidas</div><div class="value">' + (r.concluidas ?? 0) + '</div><div class="sub">' + Math.round((r.concluidas / Math.max(1, r.totalConsultas)) * 100) + '%</div></div>',
         '<div class="kpi"><div class="label">Tempo Medio</div><div class="value">' + (Math.round((tempoEstimado / 60) * 10) / 10) + 'h</div></div>',
         '<div class="kpi"><div class="label">Diff Real</div><div class="value">' + (diff === 0 ? '—' : (diff > 0 ? '+' : '') + (Math.round(diff / 60 * 10) / 10) + 'h') + '</div></div>',
       ].join('');
 
-      const maxStaff = Math.max(1, ...data.porStaff.map(x => x.total));
-      const staffHtml = data.porStaff.length > 0
-        ? '<h2>Produtividade por Staff</h2><table><thead><tr><th>Staff</th><th>Total</th><th>Concluidas</th><th>Taxa</th><th>Carga (min)</th><th>Volume</th></tr></thead><tbody>' +
-          data.porStaff.map(s => {
+      const maxFisio = Math.max(1, ...data.porFisio.map(x => x.total));
+      const fisioHtml = data.porFisio.length > 0
+        ? '<h2>Produtividade por Fisioterapeuta</h2><table><thead><tr><th>Fisioterapeuta</th><th>Total</th><th>Concluidas</th><th>Taxa</th><th>Carga (min)</th><th>Volume</th></tr></thead><tbody>' +
+          data.porFisio.map(s => {
             const pct = Math.round(s.taxaConclusao * 100);
-            const largura = Math.round((s.total / maxStaff) * 100);
+            const largura = Math.round((s.total / maxFisio) * 100);
             return '<tr><td>' + s.nome + '</td><td>' + s.total + '</td><td>' + s.concluidas + '</td><td>' + pct + '%</td><td>' + s.carga_minutos + '</td><td><div class="barra-container"><div class="barra" style="width:' + largura + '%"></div></div></td></tr>';
           }).join('') + '</tbody></table>'
         : '';
 
-      const maxProp = Math.max(1, ...data.porPropriedade.map(x => x.total));
-      const propHtml = data.porPropriedade.length > 0
-        ? '<h2>Tarefas por Propriedade</h2><table><thead><tr><th>Propriedade</th><th>Total</th><th>Concluidas</th><th>Volume</th></tr></thead><tbody>' +
-          data.porPropriedade.slice(0, 15).map(p => {
-            const largura = Math.round((p.total / maxProp) * 100);
+      const maxSala = Math.max(1, ...data.porSala.map(x => x.total));
+      const salaHtml = data.porSala.length > 0
+        ? '<h2>Consultas por Sala</h2><table><thead><tr><th>Sala</th><th>Total</th><th>Concluidas</th><th>Volume</th></tr></thead><tbody>' +
+          data.porSala.slice(0, 15).map(p => {
+            const largura = Math.round((p.total / maxSala) * 100);
             return '<tr><td>' + p.nome + '</td><td>' + p.total + '</td><td>—</td><td><div class="barra-container"><div class="barra" style="width:' + largura + '%"></div></div></td></tr>';
           }).join('') + '</tbody></table>'
         : '';
 
-      const totalTarefas = data.resumo.totalTarefas || 1;
+      const totalConsultas = data.resumo.totalConsultas || 1;
       const estadoHtml = data.porEstado.length > 0
         ? '<h2>Distribuicao por Estado</h2><table><thead><tr><th>Estado</th><th>Total</th><th>%</th></tr></thead><tbody>' +
           data.porEstado.map(e => {
-            const pct = Math.round((e.total / totalTarefas) * 100);
+            const pct = Math.round((e.total / totalConsultas) * 100);
             return '<tr><td>' + e.estado + '</td><td>' + e.total + '</td><td>' + pct + '%</td></tr>';
           }).join('') + '</tbody></table>'
         : '';
@@ -317,8 +327,8 @@ export default function RelatoriosPage() {
         '<div style="font-size:11px;color:#64748b;margin-top:2px;">Gerado em ' + geradoEm + '</div></div>',
         iaHtml,
         '<h2>KPIs</h2><div class="kpis">' + kpisHtml + '</div>',
-        staffHtml,
-        propHtml,
+        fisioHtml,
+        salaHtml,
         estadoHtml,
         '</body></html>',
       ].join('');
@@ -373,8 +383,8 @@ export default function RelatoriosPage() {
           : `${formatarHoras(diff)} mais lento`;
     return [
       {
-        label: "Total tarefas",
-        value: String(r.totalTarefas),
+        label: "Total consultas",
+        value: String(r.totalConsultas),
         icon: BarChart3,
         cor: CORES.dourado,
       },
@@ -577,7 +587,7 @@ export default function RelatoriosPage() {
                 Evolução diária
               </CardTitle>
               <CardDescription>
-                Tarefas agendadas vs. concluídas por dia.
+                Consultas agendadas vs. concluídas por dia.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -626,25 +636,25 @@ export default function RelatoriosPage() {
           </Card>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Gráfico de barras — produtividade por staff */}
+            {/* Gráfico de barras — produtividade por fisioterapeuta */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-primary" />
-                  Produtividade por funcionário
+                  Produtividade por fisioterapeuta
                 </CardTitle>
-                <CardDescription>Concluídas vs. total de tarefas atribuídas.</CardDescription>
+                <CardDescription>Concluídas vs. total de consultas atribuídas.</CardDescription>
               </CardHeader>
               <CardContent>
-                {data.porStaff.length === 0 ? (
+                {data.porFisio.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
-                    Sem tarefas atribuídas no período.
+                    Sem consultas atribuídas no período.
                   </p>
                 ) : (
                   <div className="h-72 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
-                        data={data.porStaff}
+                        data={data.porFisio}
                         layout="vertical"
                         margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
                       >
@@ -675,7 +685,7 @@ export default function RelatoriosPage() {
                   <BarChart3 className="h-5 w-5 text-primary" />
                   Distribuição por estado
                 </CardTitle>
-                <CardDescription>Repartição das tarefas no período.</CardDescription>
+                <CardDescription>Repartição das consultas no período.</CardDescription>
               </CardHeader>
               <CardContent>
                 {data.porEstado.length === 0 ? (
@@ -717,33 +727,33 @@ export default function RelatoriosPage() {
             </Card>
           </div>
 
-          {/* Tabela — por propriedade */}
+          {/* Tabela — por sala */}
           <Card>
             <CardHeader>
-              <CardTitle>Carga por propriedade</CardTitle>
-              <CardDescription>Tarefas e carga total (minutos) por propriedade.</CardDescription>
+              <CardTitle>Carga por sala</CardTitle>
+              <CardDescription>Consultas e carga total (minutos) por sala.</CardDescription>
             </CardHeader>
             <CardContent>
-              {data.porPropriedade.length === 0 ? (
+              {data.porSala.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  Sem propriedades com tarefas no período.
+                  Sem salas com consultas no período.
                 </p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-left text-muted-foreground">
-                        <th className="py-2 pr-4 font-medium">Propriedade</th>
-                        <th className="py-2 pr-4 text-right font-medium">Tarefas</th>
+                        <th className="py-2 pr-4 font-medium">Sala</th>
+                        <th className="py-2 pr-4 text-right font-medium">Consultas</th>
                         <th className="py-2 pr-4 text-right font-medium">Carga</th>
                         <th className="py-2 text-right font-medium">% do total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.porPropriedade.map((p) => {
-                        const pct = data.resumo.totalTarefas > 0 ? (p.total / data.resumo.totalTarefas) * 100 : 0;
+                      {data.porSala.map((p) => {
+                        const pct = data.resumo.totalConsultas > 0 ? (p.total / data.resumo.totalConsultas) * 100 : 0;
                         return (
-                          <tr key={p.propriedade_id} className="border-b last:border-0">
+                          <tr key={p.sala_id} className="border-b last:border-0">
                             <td className="py-2.5 pr-4 font-medium">{p.nome}</td>
                             <td className="py-2.5 pr-4 text-right">{p.total}</td>
                             <td className="py-2.5 pr-4 text-right">{formatarHoras(p.carga_minutos)}</td>
