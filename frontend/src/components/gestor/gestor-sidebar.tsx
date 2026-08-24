@@ -26,32 +26,35 @@ import {
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { fazerLogout } from "@/lib/auth";
+import { fazerLogout, lerUtilizador } from "@/lib/auth";
+import type { Role } from "@/lib/auth";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificationBell } from "@/components/notification-bell";
+import { useEffect } from "react";
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  /**
+   * Roles que podem ver este item. Se undefined, todos os roles do /gestor
+   * (diretor_clinico, rececionista, admin) veem o item.
+   * Se definido, só os roles listados veem.
+   */
+  roles?: Role[];
 }
 
 /**
- * Prompt 115 — Separação ABSOLUTA de menus.
+ * Barra lateral do Painel do Gestor de Operações.
  *
- * O array de links do Gestor contém APENAS:
- *   Dashboard, Calendário, Tarefas, Propriedades, Equipa, Ausências,
- *   Relatórios, Configurações.
+ * Prompt 115 — Separação ABSOLUTA: este componente NÃO importa nem renderiza
+ * NADA de admin. Antes, o `gestor/layout.tsx` usava `AdminSidebar` (partilhado)
+ * com `mode="gestor"` — agora há um componente dedicado e isolado.
  *
- * NÃO há nenhum link para 'Sistema', 'Empresas', 'Webhooks' ou 'Admin'.
- * Este ficheiro é dedicado ao Gestor e não partilha código com o Admin.
- */
-/**
- * Prompt 117 — Limpeza do Layout do Gestor:
- *   Removido ESTRITAMENTE o item 'Configurações'. O Gestor não gere API keys
- *   nem webhooks (essas integrações pertencem à Gaveta do Admin em
- *   /admin/empresas/[id]). O Gestor apenas vê operações:
- *   Dashboard, Calendário, Tarefas, Propriedades, Equipa, Ausências, Relatórios.
+ * Rebranding — O item "Configurações" só faz sentido para o Super Admin
+ * (role === 'admin'), que gere integrações/keys ao nível da empresa. Os
+ * utilizadores da clínica (diretor_clinico, rececionista) não o veem — as
+ * configurações operacionais estão no /admin (gestão de empresas).
  */
 const gestorNavItems: NavItem[] = [
   { label: "Dashboard", href: "/gestor", icon: LayoutDashboard },
@@ -66,19 +69,31 @@ const gestorNavItems: NavItem[] = [
   { label: "Ausências / Férias", href: "/gestor/ausencias", icon: CalendarOff },
   { label: "Relatórios", href: "/gestor/relatorios", icon: BarChart3 },
   { label: "Notificações", href: "/gestor/notificacoes", icon: Bell },
-  { label: "Configurações", href: "/gestor/configuracoes", icon: ListChecks },
+  // Rebranding — Configurações só visível para Super Admin (role admin).
+  { label: "Configurações", href: "/gestor/configuracoes", icon: ListChecks, roles: ["admin"] },
 ];
 
-/**
- * Barra lateral do Painel do Gestor de Operações.
- *
- * Prompt 115 — Separação ABSOLUTA: este componente NÃO importa nem renderiza
- * NADA de admin. Antes, o `gestor/layout.tsx` usava `AdminSidebar` (partilhado)
- * com `mode="gestor"` — agora há um componente dedicado e isolado.
- */
 export function GestorSidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+
+  // Rebranding — Lê o role do utilizador autenticado para filtrar items do
+  // menu por permissão (ex.: "Configurações" só para admin).
+  const [role, setRole] = useState<Role | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    lerUtilizador().then((u) => {
+      if (!cancelado) setRole(u?.role ?? null);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  // Filtra items por role. Se o item não declara `roles`, é visível para todos.
+  const itensVisiveis = gestorNavItems.filter(
+    (item) => !item.roles || (role && item.roles.includes(role))
+  );
 
   const basePath = "/gestor";
 
@@ -87,7 +102,7 @@ export function GestorSidebar() {
 
   const NavLinks = () => (
     <nav className="flex flex-col gap-1 px-3 py-4">
-      {gestorNavItems.map((item) => {
+      {itensVisiveis.map((item) => {
         const active = isActive(item.href);
         const Icon = item.icon;
         return (
