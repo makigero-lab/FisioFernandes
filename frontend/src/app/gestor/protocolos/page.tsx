@@ -85,7 +85,7 @@ export default function ProtocolosPage() {
     setErro(null);
     try {
       const params = filtroArea ? `?area=${filtroArea}` : "";
-      const data = await adminGet<ProtocoloListResponse>(`/gestor/protocolos${params}`);
+      const data = await adminGet<ProtocoloListResponse>(`/api/gestor/protocolos${params}`);
       setProtocolos(data.protocolos || []);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar protocolos.");
@@ -174,9 +174,9 @@ export default function ProtocolosPage() {
         ativo: form.ativo,
       };
       if (editandoId) {
-        await adminPut(`/gestor/protocolos/${editandoId}`, body);
+        await adminPut(`/api/gestor/protocolos/${editandoId}`, body);
       } else {
-        await adminPost(`/gestor/protocolos`, body);
+        await adminPost(`/api/gestor/protocolos`, body);
       }
       setMostrarForm(false);
       await carregar();
@@ -190,7 +190,7 @@ export default function ProtocolosPage() {
   async function eliminar(p: ModeloProtocoloDTO) {
     if (!confirm(`Eliminar protocolo "${p.nome}"?`)) return;
     try {
-      await adminDelete(`/gestor/protocolos/${p._id}`);
+      await adminDelete(`/api/gestor/protocolos/${p._id}`);
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao eliminar protocolo.");

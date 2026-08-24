@@ -2317,3 +2317,80 @@ Stage Summary:
 - **Hardening extra:** o `reduce` do protocolo SOAP no detalhe da consulta passou a ser defensivo (previne o mesmo crash com snapshots malformados).
 - **Validação:** tsc ✓ + next build ✓. O endpoint IA já era tolerante.
 - **Próximo passo:** commit + push para branch `dev` com mensagem `fix(frontend): alinhar dashboard e relatorios com a API pos-F8 (crash undefined.length)`.
+
+---
+
+Task ID: FIX-API-PATH
+Agent: Z.ai Code
+Task: Corrigir erro `GET /gestor/horarios 404 (Not Found)` reportado na consola do browser em produção (fisiofernandes.vercel.app).
+
+Work Log:
+- Atualizado repo local com `git pull` (branch `dev` já estava atualizada — incorporou o commit anterior `fix(frontend): alinhar dashboard e relatorios com a API pos-F8`).
+- Análise do erro: `GET https://fisiofernandes.vercel.app/gestor/horarios 404`. Inicialmente procurei `href`/links de navegação para `/gestor/horarios` — nenhum encontrado (o sidebar do gestor aponta corretamente para `/gestor/equipa/horarios`).
+- Grep por `/gestor/horarios` revelou que as únicas ocorrências são chamadas à API via `adminGet/adminPost/adminPut/adminDelete` na página `/gestor/equipa/horarios/page.tsx` (ex.: `adminGet('/gestor/horarios...')`, `adminPut('/gestor/horarios/...')`, `adminDelete('/gestor/horarios/...')`).
+- **Causa raiz identificada:** estas chamadas usavam paths **sem o prefixo `/api`**. O `adminGet` em `lib/api.ts` fazia `fetch(path)` literal — ou seja, `fetch('/gestor/horarios')` ia à **rota de página** do Next.js, e não ao catch-all proxy `/api/gestor/[...path]/route.ts` (que é que lê o cookie httpOnly e injeta o header Authorization ao encaminhar para o backend). Resultado:
+  - Para `/gestor/horarios`: a rota de página NÃO existe → **404** (o erro reportado).
+  - Para `/gestor/protocolos`, `/gestor/pacientes`, etc.: a rota de página EXISTE → o Next.js serve HTML 200 → `handleResponse` faz `res.json()` → SyntaxError (corpo é HTML, não JSON).
+- Confirmação da inconsistência: grep por `admin(Get|Post|Put|Patch|Delete)` em todo o frontend revelou que **umas páginas usam `/api/gestor/...` (correto)** e **outras usam `/gestor/...` (errado)**. Páginas CORRETAS (com `/api`): `/gestor/equipa`, `/gestor/ausencias`, `/gestor/relatorios`, `/gestor/configuracoes`, `/staff/ausencias`. Páginas ERRADAS (sem `/api`): `/gestor/pacientes`, `/gestor/equipa/horarios`, `/gestor/calendario-consultas`, `/gestor/consultas`, `/gestor/protocolos`, `/gestor/documentos`.
+- Verificação de que não há rewrites no `next.config.mjs` que pudessem mascarar o problema (só há config de PWA com `publicExcludes` para `/api/*`, `/gestor/relatorios/*`, `/_next/data/*`). O `middleware.ts` também NÃO reescreve paths de API (só protege rotas privadas e redireciona por role). O proxy está exclusivamente em `/api/gestor/[...path]`.
+- **Correção (1) — `lib/api.ts` (fix canónico):** adicionada função `normalizarPath(path)` que:
+  - Se o path for URL absoluta (`http://...` ou `https://...`) → inalterado.
+  - Se começar com `/api/` → inalterado (já está correto).
+  - Caso contrário → prefixa com `/api` (ex.: `/gestor/horarios` → `/api/gestor/horarios`).
+  Aplicada em todos os 5 helpers (`adminGet`, `adminPost`, `adminPut`, `adminPatch`, `adminDelete`). Isto corrige **todas** as chamadas erradas (presentes e futuras) de forma transparente — `adminGet('/gestor/horarios')` e `adminGet('/api/gestor/horarios')` resultam ambos no mesmo endpoint. JSDoc completo explica o porquê (sem `/api` o fetch vai à rota de página).
+- **Correção (2) — limpeza das 6 páginas (consistência):** substituição de `` `/gestor/ `` → `` `/api/gestor/ `` em cada ficheiro (via `replace_all`). Verificado previamente com grep que NÃO há `href` de navegação com `/gestor/` nestes ficheiros (só chamadas `admin*` em template literals), pelo que a substituição é segura. Páginas e nº de chamadas corrigidas:
+  - `/gestor/pacientes/page.tsx` — 5 chamadas (1 GET + 4 writes)
+  - `/gestor/equipa/horarios/page.tsx` — 6 chamadas (3 GET, incluindo `/disponibilidade` + 3 writes)
+  - `/gestor/calendario-consultas/page.tsx` — 2 chamadas (GET consultas + GET equipa)
+  - `/gestor/consultas/page.tsx` — 10 chamadas (6 GET: consultas, equipa, pacientes, propriedades, validar, detalhe + 4 writes)
+  - `/gestor/protocolos/page.tsx` — 4 chamadas (1 GET + 3 writes)
+  - `/gestor/documentos/page.tsx` — 3 chamadas (2 GET + 1 DELETE)
+- **Nota sobre os logs do Service Worker:** o trace também continha `[SW] A eliminar cache antiga: start-url` e `[SW] A eliminar cache antiga: workbox-precache-v2-...`. Isto é comportamento **normal** do Workbox (com `skipWaiting: true` + `clientsClaim: true` do `next.config.mjs`) — o SW limpa caches obsoletas quando é atualizado. Não é um erro nem precisa de correção. Com a normalização, as chamadas à API agora vão a `/api/gestor/...` (excluído do SW via `publicExcludes: ["/api/*"]`), pelo que o SW nunca as interceta.
+- **Validação:**
+  - `npx tsc --noEmit` — 0 erros ✓.
+  - `npx next build` — exit 0 ✓; 31/31 páginas estáticas geradas; todas as rotas `/gestor/*` compilam (`/gestor/equipa/horarios` 4.69 kB, `/gestor/consultas` 5.92 kB, etc.).
+  - Confirmado: zero chamadas `admin*` com `/gestor/` (sem `/api`) no código (apenas o comentário JSDoc do `normalizarPath` que documenta o comportamento).
+- **Documentação:** `docs/FRONTEND.md` — adicionada entrada "Fix API-Path" na tabela do Histórico de alterações (§13).
+
+Stage Summary:
+- **Causa raiz:** 6 páginas do gestor chamavam `adminGet/adminPost/adminPut/adminPatch/adminDelete('/gestor/...')` sem o prefixo `/api`. O `fetch('/gestor/horarios')` ia à **rota de página** do Next.js (que devolve 404 ou HTML) em vez do catch-all proxy `/api/gestor/[...path]` (que lê o cookie httpOnly e injeta o Authorization). Erro reportado: `GET /gestor/horarios 404`.
+- **Fix canónico:** `normalizarPath(path)` em `lib/api.ts` — prefixa `/api` automaticamente se o path não começar com `/api/` nem for URL absoluta. Corrige todas as chamadas erradas (presentes e futuras) de forma transparente. Aplicado nos 5 helpers (`adminGet/Post/Put/Patch/Delete`).
+- **Limpeza:** 6 páginas atualizadas para usar `/api/gestor/...` explicitamente (consistência com as páginas que já estavam corretas): `/gestor/pacientes`, `/gestor/equipa/horarios`, `/gestor/calendario-consultas`, `/gestor/consultas`, `/gestor/protocolos`, `/gestor/documentos`.
+- **Ficheiros alterados (7):** `frontend/src/lib/api.ts` (normalização) + 6 páginas (limpeza de paths).
+- **Nota SW:** os logs `[SW] A eliminar cache antiga` são comportamento normal do Workbox (limpeza de cache obsoleta ao atualizar o SW) — não precisam de correção.
+- **Validação:** tsc ✓ + next build ✓ (31/31 páginas).
+- **Próximo passo:** commit + push para branch `dev` com mensagem `fix(frontend): normalizar paths de API sem prefixo /api (404 em /gestor/horarios)`.
+
+---
+
+Task ID: REBRANDING-UI
+Agent: Z.ai Code
+Task: Concretizar o rebranding Autocell→FisioFernandes na UI do gestor (4 tarefas cirúrgicas): (1) redirect do Super Admin no login; (2) ocultar menu Configurações para não-admins; (3) corrigir erro JSON no calendário; (4) refatorizar Propriedades→Salas e remover Smoobu.
+
+Work Log:
+- Atualizado repo local com `git pull` (branch `dev` já estava atualizada com os commits anteriores FIX-F8-FE e FIX-API-PATH).
+- **Análise prévia rigorosa** de cada um dos 4 pontos (regra de atuação):
+  - **Tarefa 1 (redirect admin):** lido `frontend/src/app/login/page.tsx` e `frontend/src/lib/auth.ts`. Descoberta: o login JÁ está correto — a linha 104 usa `rotaPorRole(data.utilizador.role)` e `rotaPorRole` (auth.ts linhas 180-185) já mapeia `admin → /admin`, `diretor_clinico`/`rececionista → /gestor`, `fisioterapeuta → /staff`. O JSDoc do `login/page.tsx` (linhas 26-28) também já documenta isto. **Nada a alterar.**
+  - **Tarefa 2 (ocultar Configurações):** lido `frontend/src/components/gestor/gestor-sidebar.tsx`. O item "Configurações" ({ href: "/gestor/configuracoes", icon: ListChecks }) era mostrado a todos os roles. O sidebar é partilhado por diretor_clinico, rececionista e (potencialmente) admin.
+  - **Tarefa 3 (erro JSON calendário):** lido `frontend/src/app/gestor/calendario-consultas/page.tsx` e `frontend/src/app/staff/calendario/page.tsx`. Descoberta: AMBOS os calendários JÁ estão corretos — usam `/api/gestor/consultas` e `/api/gestor/equipa` (ou `/api/staff/consultas`), endpoints que existem. O erro `Unexpected token '<', "<!DOCTYPE"... is not valid JSON` NÃO vem do calendário em si — provém de páginas que chamam endpoints inexistentes. Grep revelou: `/gestor/propriedades` chama `/api/gestor/smoobu/*`, `/api/gestor/checklists`, `/api/gestor/propriedades/default-checklist`; `/gestor/configuracoes` chama `/api/gestor/smoobu/*`, `/api/gestor/webhooks`, `/api/gestor/configuracoes/forcar-*`. Verificado no backend (`routes/gestorRoutes.js`): estes endpoints NÃO existem (Smoobu eliminado em F0, ModeloChecklist e WebhookLog eliminados em F8) → 404 → Vercel devolve HTML → `res.json()` lança SyntaxError.
+  - **Tarefa 4 (Propriedades→Salas, remover Smoobu):** lido `frontend/src/app/gestor/propriedades/page.tsx` (1050 linhas) e `backend/models/Propriedade.js` + `backend/controllers/gestorController.js`. Confirmado: o modelo `Propriedade` já não tem `smoobu_id` (F0); o controller `criarPropriedade` ignora `smoobu_id` (só nome + morada + tempo_limpeza_minutos). A página frontend ainda tinha dropdown Smoobu, botão importar, coluna Smoobu ID, select de ModeloChecklist, botão Checklist Padrão, avisos de geocoding (Nominatim).
+- **Correção (1) — Tarefa 2 — `gestor-sidebar.tsx`:** adicionada propriedade `roles?: Role[]` ao interface `NavItem`; o item "Configurações" passa a declarar `roles: ["admin"]`. O componente `GestorSidebar` lê o role via `lerUtilizador()` (com `useEffect` + flag `cancelado` para cleanup) e filtra items: `itensVisiveis = gestorNavItems.filter(item => !item.roles || (role && item.roles.includes(role)))`. Os utilizadores da clínica (diretor_clinico, rececionista) já não veem "Configurações". Limpeza de comentários JSDoc legacy (Prompt 115/117) atualizados para refletir o rebranding.
+- **Correção (2) — Tarefa 4 — `gestor/propriedades/page.tsx` (reescrita completa, 1050→395 linhas):**
+  - Textos visuais: "Propriedades" → "Salas de Tratamento"; "Nova Propriedade" → "Nova Sala"; "Alojamentos sincronizados com o Smoobu" → "Espaços físicos da clínica onde decorrem as consultas"; "Tempo de Limpeza" → "Duração Padrão"; coluna "Smoobu ID" removida; placeholder "Apartamento Maré Alta" → "Sala 1 — Fisioterapia".
+  - Removido: estado `propriedadesSmoobu`/`smoobuLoading`/`smoobuErro`, função `carregarSmoobu`, `useEffect` que a disparava ao abrir o form; `useEffect` que carregava `propriedadesSmoobu`; dropdown de apartamentos Smoobu (select com `propriedadesSmoobu.map`); botão "Importar do Smoobu" (`handleImportarPropriedades`, chamada a `POST /api/gestor/smoobu/propriedades`); campo `smoobu_id` do form e do editForm; coluna "Smoobu ID" da tabela; input read-only "Smoobu ID" do modal de edição; botão "Checklist Padrão" (`handleAplicarChecklistPadrao`, chamada a `POST /api/gestor/propriedades/default-checklist`); textarea "Checklist de Limpeza" (form e modal); select "Modelo de Checklist" (`carregarModelosChecklist`, chamada a `GET /api/gestor/checklists`); avisos de geocoding (`moradaWarning`/`moradaConfirmada`/`editMoradaWarning`/`editMoradaConfirmada` + lógica de "Confirmar Morada Inválida"); flag `forcar_morada`; `sincronizacaoOk` (toast de importação Smoobu); ícones `Download`, `ListChecks`, `CheckCircle2` (não usados); import de `ModeloChecklistDTO`.
+  - Mantido: CRUD de salas (nome, morada, duração padrão, ativo); select de "Fisioterapeuta Preferencial" (`funcionario_preferencial_id` — campo ainda existe no modelo Propriedade); toast de sucesso inline.
+- **Correção (3) — Tarefa 3 (causa real) — `gestor/configuracoes/page.tsx` (reescrita, 391→155 linhas):** removido bloco "Ações Smoobu" (botões "Importar Propriedades", "Sincronizar Reservas", "Registrar Webhooks" — chamadas a endpoints inexistentes); modal "Logs de Sincronização Smoobu" (`carregarLogs`, `WebhookLogDTO`, `WebhooksResponse`, chamada a `GET /api/gestor/webhooks`); campo "Smoobu API Key" (`apiKeyMascarada`, `temApiKey`, `editApiKey`, `apiKeyInput`); botões de "Testes Manuais (Cron Jobs)" (`executarAcao`, chamadas a `/api/gestor/configuracoes/forcar-daily-briefing` e `/forcar-agenda-amanha`). Mantido: dados da empresa (nome, NIF, morada, telefone, email) — suportados pelo backend (`GET/PUT /api/gestor/configuracoes`). Limpeza de imports (`Webhook`, `Calendar`, `Clock`, `ScrollText`, `RefreshCw`, `Dialog*`, `Badge`, `adminGet`).
+- **Validação:**
+  - `npx tsc --noEmit` — 0 erros ✓.
+  - `npx next build` — exit 0 ✓; 31/31 páginas estáticas geradas; `/gestor/propriedades` 6.26→3.94 kB, `/gestor/configuracoes` 3.53→3.7 kB.
+  - Confirmado: zero chamadas a endpoints inexistentes (`/api/gestor/smoobu/*`, `/checklists`, `/webhooks`, `/default-checklist`, `/forcar-*`) nas páginas do gestor (apenas comentários JSDoc que documentam o que foi removido).
+- **Documentação:** `docs/FRONTEND.md` — adicionada entrada "Rebranding UI" na tabela do Histórico de alterações (§13).
+
+Stage Summary:
+- **Tarefa 1 (redirect admin):** JÁ ESTAVA CORRETO — `login/page.tsx` usa `rotaPorRole(role)` que mapeia `admin → /admin`. Sem alterações (verificação documentada).
+- **Tarefa 2 (ocultar Configurações):** `gestor-sidebar.tsx` — `NavItem.roles?: Role[]` + leitura do role via `lerUtilizador()`; item "Configurações" com `roles: ["admin"]`. Diretor clínico e rececionista já não veem o item.
+- **Tarefa 3 (erro JSON calendário):** o calendário `/gestor/calendario-consultas` JÁ estava correto. A causa real do erro `Unexpected token '<'` eram as páginas `/gestor/propriedades` e `/gestor/configuracoes` que chamavam endpoints Smoobu/Checklists/Webhooks inexistentes (404 → HTML → SyntaxError). Corrigido na Tarefa 4.
+- **Tarefa 4 (Propriedades→Salas + remover Smoobu):** `gestor/propriedades/page.tsx` reescrita (1050→395 linhas, -636); `gestor/configuracoes/page.tsx` reescrita (391→155 linhas, -236). Total: ~872 linhas de código legacy removidas. Textos "Propriedades"→"Salas de Tratamento"; Smoobu completamente eliminado (dropdown, importar, API key, ID, checklists, geocoding, webhooks, cron jobs).
+- **Ficheiros alterados (3):** `frontend/src/components/gestor/gestor-sidebar.tsx`, `frontend/src/app/gestor/propriedades/page.tsx`, `frontend/src/app/gestor/configuracoes/page.tsx`.
+- **Validação:** tsc ✓ + next build ✓ (31/31 páginas).
+- **Próximo passo:** commit + push para branch `dev`.

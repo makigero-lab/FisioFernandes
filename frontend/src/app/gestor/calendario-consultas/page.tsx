@@ -170,7 +170,7 @@ export default function CalendarioConsultasPage() {
       if (filtros.salaId) params.set("sala_id", filtros.salaId);
       if (filtros.estado) params.set("estado", filtros.estado);
 
-      const data = await adminGet<ConsultaListResponse>(`/gestor/consultas?${params}`);
+      const data = await adminGet<ConsultaListResponse>(`/api/gestor/consultas?${params}`);
       setConsultas(data.consultas || []);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar consultas.");
@@ -183,7 +183,7 @@ export default function CalendarioConsultasPage() {
   useEffect(() => {
     (async () => {
       try {
-        const data = await adminGet<{ utilizadores: UtilizadorDTO[] }>(`/gestor/equipa`);
+        const data = await adminGet<{ utilizadores: UtilizadorDTO[] }>(`/api/gestor/equipa`);
         setFisios(
           (data.utilizadores || []).filter(
             (u) => u.role === "fisioterapeuta" || u.role === "diretor_clinico"

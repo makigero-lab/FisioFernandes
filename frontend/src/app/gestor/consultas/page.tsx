@@ -170,10 +170,10 @@ export default function ConsultasPage() {
     setErro(null);
     try {
       const [rConsultas, rFisios, rPacientes, rSalas] = await Promise.all([
-        adminGet<ConsultaListResponse>(`/gestor/consultas`),
-        adminGet<{ utilizadores: UtilizadorDTO[] }>(`/gestor/equipa`),
-        adminGet<PacienteListResponse>(`/gestor/pacientes`),
-        adminGet<{ propriedades: PropriedadeDTO[] }>(`/gestor/propriedades`),
+        adminGet<ConsultaListResponse>(`/api/gestor/consultas`),
+        adminGet<{ utilizadores: UtilizadorDTO[] }>(`/api/gestor/equipa`),
+        adminGet<PacienteListResponse>(`/api/gestor/pacientes`),
+        adminGet<{ propriedades: PropriedadeDTO[] }>(`/api/gestor/propriedades`),
       ]);
       setConsultas(rConsultas.consultas || []);
       setFisios((rFisios.utilizadores || []).filter((u) => u.role === "fisioterapeuta" || u.role === "diretor_clinico"));
@@ -201,7 +201,7 @@ export default function ConsultasPage() {
       try {
         const iso = `${form.data}T${form.hora}:00`;
         const params = `?fisioterapeuta_id=${form.fisioterapeuta_id}&sala_id=${form.sala_id}&paciente_id=${form.paciente_id}&data_hora_inicio=${encodeURIComponent(iso)}&duracao_minutos=${form.duracao_minutos}${editandoId ? `&excluir_id=${editandoId}` : ""}`;
-        const res = await adminGet<ValidarConflitosResponse>(`/gestor/consultas/validar${params}`);
+        const res = await adminGet<ValidarConflitosResponse>(`/api/gestor/consultas/validar${params}`);
         setConflitos(res.conflitos || []);
       } catch {
         setConflitos([]);
@@ -269,9 +269,9 @@ export default function ConsultasPage() {
     setSubmitting(true);
     try {
       if (editandoId) {
-        await adminPut(`/gestor/consultas/${editandoId}`, body);
+        await adminPut(`/api/gestor/consultas/${editandoId}`, body);
       } else {
-        await adminPost(`/gestor/consultas`, body);
+        await adminPost(`/api/gestor/consultas`, body);
       }
       setMostrarForm(false);
       await carregar();
@@ -284,7 +284,7 @@ export default function ConsultasPage() {
 
   async function alterarEstado(c: ConsultaDTO, novoEstado: EstadoConsulta) {
     try {
-      await adminPut(`/gestor/consultas/${c._id}`, { estado: novoEstado });
+      await adminPut(`/api/gestor/consultas/${c._id}`, { estado: novoEstado });
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao alterar estado.");
@@ -294,7 +294,7 @@ export default function ConsultasPage() {
   async function eliminar(c: ConsultaDTO) {
     if (!confirm(`Eliminar consulta de ${nomePaciente(c.paciente_id)}?`)) return;
     try {
-      await adminDelete(`/gestor/consultas/${c._id}`);
+      await adminDelete(`/api/gestor/consultas/${c._id}`);
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao eliminar consulta.");
@@ -319,9 +319,9 @@ export default function ConsultasPage() {
     setNotaSaving(true);
     setNotaErro(null);
     try {
-      await adminPatch(`/gestor/consultas/${detalhe._id}/nota-clinica`, notaForm);
+      await adminPatch(`/api/gestor/consultas/${detalhe._id}/nota-clinica`, notaForm);
       // Recarrega a consulta para mostrar a nota atualizada.
-      const r = await adminGet<{ consulta: ConsultaDTO }>(`/gestor/consultas/${detalhe._id}`);
+      const r = await adminGet<{ consulta: ConsultaDTO }>(`/api/gestor/consultas/${detalhe._id}`);
       setDetalhe(r.consulta);
       setNotaEdit(false);
       await carregar();
