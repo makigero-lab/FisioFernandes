@@ -17,11 +17,35 @@
 /* ------------------------------------------------------------------ */
 
 /**
+ * Normaliza o path de um endpoint admin.
+ *
+ * O proxy que injeta o JWT (cookie httpOnly) está montado em
+ * `/api/gestor/[...path]` (e `/api/admin/...`, `/api/auth/...`,
+ * `/api/staff/...`). Para que o pedido chegue ao proxy — e não à ROTA
+ * DE PÁGINA do Next.js (que devolve HTML ou 404) — o path tem de começar
+ * com `/api/`.
+ *
+ * Esta função garante esse prefixo de forma transparente:
+ *   - `/gestor/horarios`        → `/api/gestor/horarios`
+ *   - `/api/gestor/dashboard`   → `/api/gestor/dashboard` (inalterado)
+ *   - `https://...`             → inalterado (URL absoluta)
+ *
+ * Sem esta normalização, `adminGet('/gestor/horarios')` fazia
+ * `fetch('/gestor/horarios')` que ia à rota de página (404 quando a página
+ * não existe, ou HTML quando existe — ambos quebram o `res.json()`).
+ */
+function normalizarPath(path: string): string {
+  if (/^https?:\/\//.test(path)) return path;
+  if (path.startsWith("/api/")) return path;
+  return path.startsWith("/") ? `/api${path}` : `/api/${path}`;
+}
+
+/**
  * Faz um GET a um endpoint admin (via proxy same-origin).
  * O token é injetado automaticamente pelo proxy no servidor.
  */
 export async function adminGet<T>(path: string): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(normalizarPath(path), {
     method: "GET",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -34,7 +58,7 @@ export async function adminGet<T>(path: string): Promise<T> {
  * Faz um POST a um endpoint admin com JSON no corpo.
  */
 export async function adminPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(normalizarPath(path), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -48,7 +72,7 @@ export async function adminPost<T>(path: string, body: unknown): Promise<T> {
  * Faz um PUT a um endpoint admin com JSON no corpo.
  */
 export async function adminPut<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(normalizarPath(path), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -62,7 +86,7 @@ export async function adminPut<T>(path: string, body: unknown): Promise<T> {
  * Faz um PATCH a um endpoint admin com JSON no corpo.
  */
 export async function adminPatch<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(normalizarPath(path), {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -76,7 +100,7 @@ export async function adminPatch<T>(path: string, body?: unknown): Promise<T> {
  * Faz um DELETE a um endpoint admin.
  */
 export async function adminDelete<T>(path: string): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(normalizarPath(path), {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

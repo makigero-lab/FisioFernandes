@@ -96,7 +96,7 @@ export default function PacientesPage() {
     setErro(null);
     try {
       const params = busca ? `?busca=${encodeURIComponent(busca)}` : "";
-      const data = await adminGet<PacienteListResponse>(`/gestor/pacientes${params}`);
+      const data = await adminGet<PacienteListResponse>(`/api/gestor/pacientes${params}`);
       setPacientes(data.pacientes || []);
       setDadosClinicos(!!data.dados_clinicos);
     } catch (e: unknown) {
@@ -186,9 +186,9 @@ export default function PacientesPage() {
     setSubmitting(true);
     try {
       if (editandoId) {
-        await adminPut(`/gestor/pacientes/${editandoId}`, body);
+        await adminPut(`/api/gestor/pacientes/${editandoId}`, body);
       } else {
-        await adminPost(`/gestor/pacientes`, body);
+        await adminPost(`/api/gestor/pacientes`, body);
       }
       setMostrarForm(false);
       await carregar();
@@ -201,7 +201,7 @@ export default function PacientesPage() {
 
   async function alternarEstado(p: PacienteDTO) {
     try {
-      await adminPatch(`/gestor/pacientes/${p._id}/estado`, { ativo: !p.ativo });
+      await adminPatch(`/api/gestor/pacientes/${p._id}/estado`, { ativo: !p.ativo });
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao alterar estado.");
@@ -211,7 +211,7 @@ export default function PacientesPage() {
   async function eliminar(p: PacienteDTO) {
     if (!confirm(`Eliminar paciente "${p.nome}"? (Soft delete — preserva histórico)`)) return;
     try {
-      await adminDelete(`/gestor/pacientes/${p._id}`);
+      await adminDelete(`/api/gestor/pacientes/${p._id}`);
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao eliminar paciente.");

@@ -100,8 +100,8 @@ export default function DocumentosPage() {
       if (filtroTipo) params.set("tipo", filtroTipo);
 
       const [rDocs, rPacientes] = await Promise.all([
-        adminGet<DocumentoListResponse>(`/gestor/documentos?${params}`),
-        adminGet<PacienteListResponse>(`/gestor/pacientes`),
+        adminGet<DocumentoListResponse>(`/api/gestor/documentos?${params}`),
+        adminGet<PacienteListResponse>(`/api/gestor/pacientes`),
       ]);
       setDocumentos(rDocs.documentos || []);
       setPacientes(rPacientes.pacientes || []);
@@ -171,7 +171,7 @@ export default function DocumentosPage() {
   async function eliminar(d: DocumentoDTO) {
     if (!confirm(`Eliminar documento "${d.nome_original}"?`)) return;
     try {
-      await adminDelete(`/gestor/documentos/${d._id}`);
+      await adminDelete(`/api/gestor/documentos/${d._id}`);
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao eliminar documento.");

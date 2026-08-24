@@ -2317,3 +2317,46 @@ Stage Summary:
 - **Hardening extra:** o `reduce` do protocolo SOAP no detalhe da consulta passou a ser defensivo (previne o mesmo crash com snapshots malformados).
 - **Validação:** tsc ✓ + next build ✓. O endpoint IA já era tolerante.
 - **Próximo passo:** commit + push para branch `dev` com mensagem `fix(frontend): alinhar dashboard e relatorios com a API pos-F8 (crash undefined.length)`.
+
+---
+
+Task ID: FIX-API-PATH
+Agent: Z.ai Code
+Task: Corrigir erro `GET /gestor/horarios 404 (Not Found)` reportado na consola do browser em produção (fisiofernandes.vercel.app).
+
+Work Log:
+- Atualizado repo local com `git pull` (branch `dev` já estava atualizada — incorporou o commit anterior `fix(frontend): alinhar dashboard e relatorios com a API pos-F8`).
+- Análise do erro: `GET https://fisiofernandes.vercel.app/gestor/horarios 404`. Inicialmente procurei `href`/links de navegação para `/gestor/horarios` — nenhum encontrado (o sidebar do gestor aponta corretamente para `/gestor/equipa/horarios`).
+- Grep por `/gestor/horarios` revelou que as únicas ocorrências são chamadas à API via `adminGet/adminPost/adminPut/adminDelete` na página `/gestor/equipa/horarios/page.tsx` (ex.: `adminGet('/gestor/horarios...')`, `adminPut('/gestor/horarios/...')`, `adminDelete('/gestor/horarios/...')`).
+- **Causa raiz identificada:** estas chamadas usavam paths **sem o prefixo `/api`**. O `adminGet` em `lib/api.ts` fazia `fetch(path)` literal — ou seja, `fetch('/gestor/horarios')` ia à **rota de página** do Next.js, e não ao catch-all proxy `/api/gestor/[...path]/route.ts` (que é que lê o cookie httpOnly e injeta o header Authorization ao encaminhar para o backend). Resultado:
+  - Para `/gestor/horarios`: a rota de página NÃO existe → **404** (o erro reportado).
+  - Para `/gestor/protocolos`, `/gestor/pacientes`, etc.: a rota de página EXISTE → o Next.js serve HTML 200 → `handleResponse` faz `res.json()` → SyntaxError (corpo é HTML, não JSON).
+- Confirmação da inconsistência: grep por `admin(Get|Post|Put|Patch|Delete)` em todo o frontend revelou que **umas páginas usam `/api/gestor/...` (correto)** e **outras usam `/gestor/...` (errado)**. Páginas CORRETAS (com `/api`): `/gestor/equipa`, `/gestor/ausencias`, `/gestor/relatorios`, `/gestor/configuracoes`, `/staff/ausencias`. Páginas ERRADAS (sem `/api`): `/gestor/pacientes`, `/gestor/equipa/horarios`, `/gestor/calendario-consultas`, `/gestor/consultas`, `/gestor/protocolos`, `/gestor/documentos`.
+- Verificação de que não há rewrites no `next.config.mjs` que pudessem mascarar o problema (só há config de PWA com `publicExcludes` para `/api/*`, `/gestor/relatorios/*`, `/_next/data/*`). O `middleware.ts` também NÃO reescreve paths de API (só protege rotas privadas e redireciona por role). O proxy está exclusivamente em `/api/gestor/[...path]`.
+- **Correção (1) — `lib/api.ts` (fix canónico):** adicionada função `normalizarPath(path)` que:
+  - Se o path for URL absoluta (`http://...` ou `https://...`) → inalterado.
+  - Se começar com `/api/` → inalterado (já está correto).
+  - Caso contrário → prefixa com `/api` (ex.: `/gestor/horarios` → `/api/gestor/horarios`).
+  Aplicada em todos os 5 helpers (`adminGet`, `adminPost`, `adminPut`, `adminPatch`, `adminDelete`). Isto corrige **todas** as chamadas erradas (presentes e futuras) de forma transparente — `adminGet('/gestor/horarios')` e `adminGet('/api/gestor/horarios')` resultam ambos no mesmo endpoint. JSDoc completo explica o porquê (sem `/api` o fetch vai à rota de página).
+- **Correção (2) — limpeza das 6 páginas (consistência):** substituição de `` `/gestor/ `` → `` `/api/gestor/ `` em cada ficheiro (via `replace_all`). Verificado previamente com grep que NÃO há `href` de navegação com `/gestor/` nestes ficheiros (só chamadas `admin*` em template literals), pelo que a substituição é segura. Páginas e nº de chamadas corrigidas:
+  - `/gestor/pacientes/page.tsx` — 5 chamadas (1 GET + 4 writes)
+  - `/gestor/equipa/horarios/page.tsx` — 6 chamadas (3 GET, incluindo `/disponibilidade` + 3 writes)
+  - `/gestor/calendario-consultas/page.tsx` — 2 chamadas (GET consultas + GET equipa)
+  - `/gestor/consultas/page.tsx` — 10 chamadas (6 GET: consultas, equipa, pacientes, propriedades, validar, detalhe + 4 writes)
+  - `/gestor/protocolos/page.tsx` — 4 chamadas (1 GET + 3 writes)
+  - `/gestor/documentos/page.tsx` — 3 chamadas (2 GET + 1 DELETE)
+- **Nota sobre os logs do Service Worker:** o trace também continha `[SW] A eliminar cache antiga: start-url` e `[SW] A eliminar cache antiga: workbox-precache-v2-...`. Isto é comportamento **normal** do Workbox (com `skipWaiting: true` + `clientsClaim: true` do `next.config.mjs`) — o SW limpa caches obsoletas quando é atualizado. Não é um erro nem precisa de correção. Com a normalização, as chamadas à API agora vão a `/api/gestor/...` (excluído do SW via `publicExcludes: ["/api/*"]`), pelo que o SW nunca as interceta.
+- **Validação:**
+  - `npx tsc --noEmit` — 0 erros ✓.
+  - `npx next build` — exit 0 ✓; 31/31 páginas estáticas geradas; todas as rotas `/gestor/*` compilam (`/gestor/equipa/horarios` 4.69 kB, `/gestor/consultas` 5.92 kB, etc.).
+  - Confirmado: zero chamadas `admin*` com `/gestor/` (sem `/api`) no código (apenas o comentário JSDoc do `normalizarPath` que documenta o comportamento).
+- **Documentação:** `docs/FRONTEND.md` — adicionada entrada "Fix API-Path" na tabela do Histórico de alterações (§13).
+
+Stage Summary:
+- **Causa raiz:** 6 páginas do gestor chamavam `adminGet/adminPost/adminPut/adminPatch/adminDelete('/gestor/...')` sem o prefixo `/api`. O `fetch('/gestor/horarios')` ia à **rota de página** do Next.js (que devolve 404 ou HTML) em vez do catch-all proxy `/api/gestor/[...path]` (que lê o cookie httpOnly e injeta o Authorization). Erro reportado: `GET /gestor/horarios 404`.
+- **Fix canónico:** `normalizarPath(path)` em `lib/api.ts` — prefixa `/api` automaticamente se o path não começar com `/api/` nem for URL absoluta. Corrige todas as chamadas erradas (presentes e futuras) de forma transparente. Aplicado nos 5 helpers (`adminGet/Post/Put/Patch/Delete`).
+- **Limpeza:** 6 páginas atualizadas para usar `/api/gestor/...` explicitamente (consistência com as páginas que já estavam corretas): `/gestor/pacientes`, `/gestor/equipa/horarios`, `/gestor/calendario-consultas`, `/gestor/consultas`, `/gestor/protocolos`, `/gestor/documentos`.
+- **Ficheiros alterados (7):** `frontend/src/lib/api.ts` (normalização) + 6 páginas (limpeza de paths).
+- **Nota SW:** os logs `[SW] A eliminar cache antiga` são comportamento normal do Workbox (limpeza de cache obsoleta ao atualizar o SW) — não precisam de correção.
+- **Validação:** tsc ✓ + next build ✓ (31/31 páginas).
+- **Próximo passo:** commit + push para branch `dev` com mensagem `fix(frontend): normalizar paths de API sem prefixo /api (404 em /gestor/horarios)`.

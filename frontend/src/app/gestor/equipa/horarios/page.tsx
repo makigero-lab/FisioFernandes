@@ -120,8 +120,8 @@ export default function HorariosPage() {
     try {
       const params = filtroFisio ? `?fisioterapeuta_id=${encodeURIComponent(filtroFisio)}` : "";
       const [rHorarios, rFisios] = await Promise.all([
-        adminGet<HorarioListResponse>(`/gestor/horarios${params}`),
-        adminGet<{ utilizadores: UtilizadorDTO[] }>(`/gestor/equipa`),
+        adminGet<HorarioListResponse>(`/api/gestor/horarios${params}`),
+        adminGet<{ utilizadores: UtilizadorDTO[] }>(`/api/gestor/equipa`),
       ]);
       setHorarios(rHorarios.horarios || []);
       // Filtra só fisioterapeutas e diretores clínicos.
@@ -202,9 +202,9 @@ export default function HorariosPage() {
     setSubmitting(true);
     try {
       if (editandoId) {
-        await adminPut(`/gestor/horarios/${editandoId}`, body);
+        await adminPut(`/api/gestor/horarios/${editandoId}`, body);
       } else {
-        await adminPost(`/gestor/horarios`, body);
+        await adminPost(`/api/gestor/horarios`, body);
       }
       setMostrarForm(false);
       await carregar();
@@ -218,7 +218,7 @@ export default function HorariosPage() {
   async function eliminar(h: HorarioFisioterapeutaDTO) {
     if (!confirm(`Eliminar horário de ${nomeFisio(h.fisioterapeuta_id)}?`)) return;
     try {
-      await adminDelete(`/gestor/horarios/${h._id}`);
+      await adminDelete(`/api/gestor/horarios/${h._id}`);
       await carregar();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : "Erro ao eliminar horário.");
@@ -233,7 +233,7 @@ export default function HorariosPage() {
       // Combina data + hora num ISO string.
       const iso = `${checkData}T${checkHora}:00`;
       const res = await adminGet<DisponibilidadeResponse>(
-        `/gestor/horarios/disponibilidade?fisioterapeuta_id=${checkFisio}&data=${encodeURIComponent(iso)}&duracao_minutos=${checkDuracao}`
+        `/api/gestor/horarios/disponibilidade?fisioterapeuta_id=${checkFisio}&data=${encodeURIComponent(iso)}&duracao_minutos=${checkDuracao}`
       );
       setCheckResult(res);
     } catch (e: unknown) {
