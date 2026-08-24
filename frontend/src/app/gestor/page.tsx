@@ -34,11 +34,17 @@ interface DashboardData {
   totalPropriedades: number;
   propriedadesAtivas: number;
   membrosEquipaAtivos: number;
-  tarefasHoje: number;
-  tarefasPorAtribuir: number;
-  tarefasConcluidasHoje: number;
-  tarefasPorStaff: { utilizador_id: string; nome: string; tarefas: number; carga_minutos: number }[];
+  // F8 — Renomeado do domínio Tarefa → Consulta (o backend já devolve estes campos).
+  consultasHoje: number;
+  // Consultas de hoje marcadas/confirmadas/em_curso (não concluídas nem canceladas).
+  consultasMarcadasHoje: number;
+  consultasConcluidasHoje: number;
+  // Carga por fisioterapeuta (substitui o antigo tarefasPorStaff).
+  cargaPorFisio: { utilizador_id: string; nome: string; consultas: number; carga_minutos: number }[];
   // v1.54.0 (Prompt 76) — Radar de Risco: check-ins sem limpeza nas próximas 48h.
+  // Nota (F8): o backend já NÃO devolve este campo (Tarefa foi eliminado). A
+  // secção de render está guardada com optional chaining, pelo que não cracha
+  // nem é exibida. Mantido na interface para compatibilidade retroativa.
   checkinsEmRisco?: {
     total: number;
     tarefas: {
@@ -83,7 +89,9 @@ export default function AdminDashboardPage() {
           "/api/gestor/ausencias?estado=pendente_emergencia"
         ),
       ]);
-      setData(dashRes);
+      // F8 — Normaliza arrays para evitar crash de render se o backend omitir
+      // algum campo (defesa em profundidade).
+      setData({ ...dashRes, cargaPorFisio: dashRes.cargaPorFisio ?? [] });
       setEmergencias(emergRes.ausencias ?? []);
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar dashboard.");
@@ -136,9 +144,9 @@ export default function AdminDashboardPage() {
     ? [
         { label: "Propriedades", value: `${data.propriedadesAtivas}/${data.totalPropriedades}`, icon: Building2 },
         { label: "Staff ativo", value: data.membrosEquipaAtivos, icon: Users },
-        { label: "Tarefas hoje", value: data.tarefasHoje, icon: ClipboardList },
-        { label: "Por atribuir", value: data.tarefasPorAtribuir, icon: AlertCircle },
-        { label: "Concluídas", value: data.tarefasConcluidasHoje, icon: CheckCircle2 },
+        { label: "Consultas hoje", value: data.consultasHoje, icon: ClipboardList },
+        { label: "A decorrer", value: data.consultasMarcadasHoje, icon: AlertCircle },
+        { label: "Concluídas", value: data.consultasConcluidasHoje, icon: CheckCircle2 },
       ]
     : [];
 
@@ -152,7 +160,7 @@ export default function AdminDashboardPage() {
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          Visão operacional das limpezas de hoje (dados em tempo real).
+          Visão operacional das consultas de hoje (dados em tempo real).
         </p>
       </div>
 
@@ -335,27 +343,27 @@ export default function AdminDashboardPage() {
             })}
           </div>
 
-          {/* Carga por staff */}
+          {/* Carga por fisioterapeuta */}
           <Card>
             <CardHeader>
               <CardTitle>Estado da equipa</CardTitle>
-              <CardDescription>Carga de trabalho de hoje.</CardDescription>
+              <CardDescription>Carga de trabalho de hoje (consultas).</CardDescription>
             </CardHeader>
             <CardContent>
-              {data.tarefasPorStaff.length === 0 ? (
+              {data.cargaPorFisio.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Sem tarefas atribuídas hoje.
+                  Sem consultas marcadas hoje.
                 </p>
               ) : (
                 <ul className="space-y-3">
-                  {data.tarefasPorStaff.map((s) => (
+                  {data.cargaPorFisio.map((s) => (
                     <li key={s.utilizador_id} className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-3">
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
                         <div className="flex flex-col">
                           <span className="text-sm font-medium">{s.nome}</span>
                           <span className="text-xs text-muted-foreground">
-                            {s.tarefas} tarefas
+                            {s.consultas} consulta(s)
                           </span>
                         </div>
                       </div>

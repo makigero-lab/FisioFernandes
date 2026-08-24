@@ -164,9 +164,16 @@ export function DetalheConsultaClient({ consulta: consultaInicial }: { consulta:
   );
 
   // Protocolo aplicado (snapshot) — editável (marcar items concluídos).
+  // Normaliza: garante que cada secção tem um array `items` (defesa contra
+  // snapshots malformados/legados que possam ter `items` undefined, o que
+  // faria o reduce abaixo crachar com "reading 'length' of undefined").
   const [protocolo, setProtocolo] = useState<ProtocoloSeccao[]>(
     Array.isArray(consultaInicial.nota_clinica?.protocolo_aplicado)
       ? (consultaInicial.nota_clinica!.protocolo_aplicado as unknown as ProtocoloSeccao[])
+          .map((sec) => ({
+            nome: sec.nome ?? "",
+            items: Array.isArray(sec.items) ? sec.items : [],
+          }))
       : []
   );
 
@@ -181,9 +188,13 @@ export function DetalheConsultaClient({ consulta: consultaInicial }: { consulta:
   const podeIniciar = ["marcada", "confirmada"].includes(consulta.estado);
   const cancelada = ["cancelada", "faltou", "nao_compareceu"].includes(consulta.estado);
 
-  const totalItensProtocolo = protocolo.reduce((acc, sec) => acc + sec.items.length, 0);
+  const totalItensProtocolo = protocolo.reduce(
+    (acc, sec) => acc + (Array.isArray(sec.items) ? sec.items.length : 0),
+    0
+  );
   const itensConcluidos = protocolo.reduce(
-    (acc, sec) => acc + sec.items.filter((i) => i.concluido).length,
+    (acc, sec) =>
+      acc + (Array.isArray(sec.items) ? sec.items.filter((i) => i.concluido).length : 0),
     0
   );
 
